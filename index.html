@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1f2a37">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="To Do">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>To Do</title>
+<style>
+:root{
+  --bg:#f4f1ea; --card:#fffdf8; --ink:#1f2a37; --muted:#6b7280; --line:#e4dfd2;
+  --accent:#b4531f; --accent-ink:#fff; --done:#9ca3af; --bar:#e4dfd2;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#14181d; --card:#1d232b; --ink:#eef0f2; --muted:#9aa3ad; --line:#2b333d; --accent:#e07a3f; --accent-ink:#14181d; --done:#6b7480; --bar:#2b333d; }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding:env(safe-area-inset-top) 16px calc(40px + env(safe-area-inset-bottom))}
+.wrap{max-width:640px;margin:0 auto}
+header{padding:22px 0 10px}
+h1{margin:0;font-size:28px;letter-spacing:-.5px}
+.sub{color:var(--muted);font-size:14px;margin-top:2px}
+.bar{height:8px;background:var(--bar);border-radius:99px;overflow:hidden;margin:12px 0 4px}
+.bar>div{height:100%;width:0;background:var(--accent);transition:width .25s}
+.sec{background:var(--card);border:1px solid var(--line);border-radius:14px;margin:14px 0;overflow:hidden}
+.sec-head{display:flex;align-items:center;gap:8px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.sec-head h2{margin:0;font-size:15px;text-transform:uppercase;letter-spacing:.06em;flex:1}
+.count{color:var(--muted);font-size:13px}
+.item{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.item:last-of-type{border-bottom:0}
+.item input[type=checkbox]{width:24px;height:24px;margin:1px 0 0;accent-color:var(--accent);flex:none}
+.item .t{flex:1;word-break:break-word}
+.item.done .t{color:var(--done);text-decoration:line-through}
+.icon{background:none;border:0;color:var(--muted);font-size:18px;padding:2px 6px;cursor:pointer}
+.add{display:flex;gap:8px;padding:10px 14px;border-top:1px solid var(--line)}
+.add input,.newsec input{flex:1;min-width:0;font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+button.pri{font:inherit;font-weight:600;padding:10px 14px;border:0;border-radius:10px;background:var(--accent);color:var(--accent-ink);cursor:pointer}
+.newsec{display:flex;gap:8px;margin:18px 0}
+.tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:22px}
+.tools button{font:inherit;font-size:14px;padding:8px 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);cursor:pointer}
+.hint{color:var(--muted);font-size:13px;margin-top:10px}
+#lock{display:none;position:fixed;inset:0;background:var(--bg);z-index:10;align-items:center;justify-content:center}
+body.locked #lock{display:flex}
+body.locked .wrap{display:none}
+.lockbox{text-align:center;width:220px}
+.lockbox input{width:100%;font:inherit;font-size:28px;text-align:center;letter-spacing:.4em;padding:12px;margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)}
+</style>
+</head>
+<body class="locked">
+<div id="lock">
+  <div class="lockbox">
+    <h1>To Do</h1>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="3" placeholder="Code">
+    <div id="pinMsg" class="hint"></div>
+  </div>
+</div>
+<div class="wrap">
+  <header>
+    <h1>To Do</h1>
+    <div class="sub" id="sub"></div>
+    <div class="bar"><div id="fill"></div></div>
+  </header>
+  <main id="app"></main>
+  <div class="newsec">
+    <input id="newSecName" placeholder="New section name" enterkeyhint="done">
+    <button class="pri" id="newSecBtn">Add section</button>
+  </div>
+  <div class="tools">
+    <button id="lockBtn">Lock</button>
+    <button id="hideDone">Hide finished</button>
+    <button id="exportBtn">Back up</button>
+    <button id="importBtn">Restore</button>
+    <input type="file" id="importFile" accept="application/json" hidden>
+  </div>
+  <div class="hint">Saved on this device. Use Back up now and then to keep a copy.</div>
+</div>
+
+<script>
+(function(){
+  var KEY = 'todo-hub-v1';
+  var uid = function(){ return Math.random().toString(36).slice(2,9); };
+  var mk = function(name, items){ return {id:uid(), name:name, items:items.map(function(t){ return {id:uid(), text:t, done:false}; })}; };
+
+  function seed(){
+    return { hideDone:false, sections:[
+      mk('Home and money', [
+        'Review insurance policy and decide on the whole life switch',
+        'Sell the Peloton',
+        'Sell the Vitruvian',
+        'Sell the gecko enclosure',
+        'Organize the shed'
+      ]),
+      mk('Projects with Roman', [
+        'Motorcycle: put the 225cc Harbor Freight motor in the Coleman 100 TU',
+        'Trailer refresh: fixed axle',
+        'Trailer refresh: welding',
+        'Trailer refresh: redo the lights'
+      ]),
+      mk('Roof', [
+        'Standing seam metal roof install',
+        'Finalize the phased panel order across the 14 facets'
+      ]),
+      mk('Making money', [
+        'Plate Mate: pre-order pitch',
+        'Plate Mate: one page business summary',
+        'Plate Mate: cost model spreadsheet',
+        'Kalama preschool daycare plan',
+        'Paramedic assessment guide app: rebuild content as original work, remove security codes',
+        'Boyce Holdings LLC: S Corp election, trust integration, CPA consult',
+        'Grow the North Country EMS Training YouTube channel',
+        'Home Depot affiliate program: set up a site or social channel, then apply',
+        '3D print farm: decide on the EMS/fire/SAR gear niche',
+        'Hybrid EMT Basic program in Kelso',
+        'Kubota brush cutter attachment and brush work contracting',
+        'Patriot Woods rail tourism idea'
+      ])
+    ]};
+  }
+
+  var state;
+  function load(){
+    try { var s = JSON.parse(localStorage.getItem(KEY)); if (s && s.sections) return s; } catch(e){}
+    return seed();
+  }
+  function save(){ try { localStorage.setItem(KEY, JSON.stringify(state)); } catch(e){} }
+
+  var app = document.getElementById('app');
+  function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  function render(){
+    var total = 0, done = 0, html = '';
+    state.sections.forEach(function(sec){
+      var d = sec.items.filter(function(i){ return i.done; }).length;
+      total += sec.items.length; done += d;
+      html += '<section class="sec" data-sec="'+sec.id+'"><div class="sec-head"><h2>'+esc(sec.name)+'</h2><span class="count">'+d+'/'+sec.items.length+'</span><button class="icon" data-act="delsec" title="Delete section">&times;</button></div>';
+      sec.items.forEach(function(it){
+        if (state.hideDone && it.done) return;
+        html += '<div class="item'+(it.done?' done':'')+'" data-item="'+it.id+'"><input type="checkbox" data-act="toggle"'+(it.done?' checked':'')+'><span class="t">'+esc(it.text)+'</span><button class="icon" data-act="edit" title="Edit">&#9998;</button><button class="icon" data-act="del" title="Delete">&times;</button></div>';
+      });
+      html += '<div class="add"><input placeholder="Add an item" enterkeyhint="done"><button class="pri" data-act="add">Add</button></div></section>';
+    });
+    app.innerHTML = html;
+    document.getElementById('sub').textContent = done + ' of ' + total + ' done';
+    document.getElementById('fill').style.width = (total ? Math.round(done/total*100) : 0) + '%';
+    document.getElementById('hideDone').textContent = state.hideDone ? 'Show finished' : 'Hide finished';
+  }
+
+  function findSec(el){ var n = el.closest('[data-sec]'); return n && state.sections.filter(function(s){ return s.id === n.dataset.sec; })[0]; }
+  function findItem(el, sec){ var n = el.closest('[data-item]'); return n && sec.items.filter(function(i){ return i.id === n.dataset.item; })[0]; }
+
+  function addItem(secEl){
+    var sec = findSec(secEl); var input = secEl.closest('.sec').querySelector('.add input');
+    var v = input.value.trim(); if (!v) return;
+    sec.items.push({id:uid(), text:v, done:false}); save(); render();
+  }
+
+  app.addEventListener('click', function(e){
+    var b = e.target.closest('[data-act]'); if (!b) return;
+    var act = b.dataset.act, sec = findSec(b);
+    if (act === 'add') return addItem(b);
+    if (act === 'delsec'){ if (confirm('Delete the section "'+sec.name+'" and everything in it?')){ state.sections = state.sections.filter(function(s){ return s !== sec; }); save(); render(); } return; }
+    var it = findItem(b, sec);
+    if (act === 'toggle'){ it.done = b.checked; save(); render(); }
+    if (act === 'del'){ sec.items = sec.items.filter(function(i){ return i !== it; }); save(); render(); }
+    if (act === 'edit'){ var v = prompt('Edit item', it.text); if (v !== null && v.trim()){ it.text = v.trim(); save(); render(); } }
+  });
+  app.addEventListener('keydown', function(e){
+    if (e.key === 'Enter' && e.target.matches('.add input')) addItem(e.target);
+  });
+
+  function addSection(){
+    var i = document.getElementById('newSecName'); var v = i.value.trim(); if (!v) return;
+    state.sections.push({id:uid(), name:v, items:[]}); i.value = ''; save(); render();
+  }
+  document.getElementById('newSecBtn').addEventListener('click', addSection);
+  document.getElementById('newSecName').addEventListener('keydown', function(e){ if (e.key === 'Enter') addSection(); });
+  document.getElementById('hideDone').addEventListener('click', function(){ state.hideDone = !state.hideDone; save(); render(); });
+
+  document.getElementById('exportBtn').addEventListener('click', function(){
+    var blob = new Blob([JSON.stringify(state, null, 2)], {type:'application/json'});
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'todo-backup-' + new Date().toISOString().slice(0,10) + '.json'; a.click();
+    setTimeout(function(){ URL.revokeObjectURL(a.href); }, 1000);
+  });
+  document.getElementById('importBtn').addEventListener('click', function(){ document.getElementById('importFile').click(); });
+  document.getElementById('importFile').addEventListener('change', function(e){
+    var f = e.target.files[0]; if (!f) return;
+    var r = new FileReader();
+    r.onload = function(){
+      try { var s = JSON.parse(r.result); if (!s.sections) throw 0; if (confirm('Replace your current list with this backup?')){ state = s; save(); render(); } }
+      catch(err){ alert('That file is not a valid backup.'); }
+    };
+    r.readAsText(f); e.target.value = '';
+  });
+
+  var PIN = '923';
+  var pinEl = document.getElementById('pin'), pinMsg = document.getElementById('pinMsg');
+  function unlock(){
+    document.body.classList.remove('locked'); pinEl.value = ''; pinMsg.textContent = '';
+    try { sessionStorage.setItem('todo-ok', '1'); } catch(e){}
+  }
+  function lockNow(){
+    try { sessionStorage.removeItem('todo-ok'); } catch(e){}
+    document.body.classList.add('locked'); pinEl.value = '';
+    setTimeout(function(){ pinEl.focus(); }, 50);
+  }
+  pinEl.addEventListener('input', function(){
+    if (pinEl.value === PIN) return unlock();
+    if (pinEl.value.length >= PIN.length){ pinEl.value = ''; pinMsg.textContent = 'Wrong code'; }
+    else pinMsg.textContent = '';
+  });
+  document.getElementById('lockBtn').addEventListener('click', lockNow);
+  try { if (sessionStorage.getItem('todo-ok') === '1') unlock(); else pinEl.focus(); } catch(e){}
+
+  state = load(); render();
+  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(function(){});
+})();
+</script>
+</body>
+</html>
