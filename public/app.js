@@ -103,9 +103,10 @@
     settings: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>',
   };
 
+  function theme() { var t = document.documentElement.getAttribute('data-theme'); return t || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
   function top(title, sub) {
     return '<div class="top"><div><h1>' + esc(title) + '</h1><div class="sub">' + esc(sub || '') + '</div></div>' +
-      '<button class="refresh' + (S.newer ? ' new' : '') + '" data-act="refresh">' + (S.newer ? '↻ Update ready' : '↻ Refresh') + '</button></div>';
+      '<div class="topbtns"><button class="themebtn" data-act="theme" aria-label="Switch light or dark">' + (theme() === 'dark' ? '\u2600' : '\u263E') + '</button><button class="refresh' + (S.newer ? ' new' : '') + '" data-act="refresh">' + (S.newer ? '↻ Update ready' : '↻ Refresh') + '</button></div></div>';
   }
 
   function options(stores, current, blankLabel) {
@@ -167,6 +168,23 @@
   }
 
   // ---------- the four screens ----------
+  function greeting() { var hr = new Date().getHours(); return hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening'; }
+  function dueLine(open) {
+    var t = today(), due = 0;
+    S.data.lists.forEach(function (l) { l.sections.forEach(function (sec) { sec.items.forEach(function (it) {
+      if (it.due && it.due <= t && !itemDone(it)) due++;
+      it.kids.forEach(function (k) { if (k.due && k.due <= t && !k.done) due++; });
+    }); }); });
+    due += (S.data.chores || []).filter(function (c) { return c.today && !c.done; }).length;
+    return due + ' due today \u00B7 ' + open + ' open';
+  }
+  function badgeFor(key) {
+    var n = 0;
+    if (key === 'lists') S.data.lists.forEach(function (l) { var st = stats(l); n += st[1] - st[0]; });
+    if (key === 'chores') n = (S.data.chores || []).filter(function (c) { return (c.today && !c.done) || (!c.today && c.missed); }).length;
+    if (key === 'shop') n = shopRows().filter(function (r) { return !r.it.done; }).length;
+    return n;
+  }
   function upNext(l) {
     var out = [];
     l.sections.forEach(function (sec) {
@@ -180,7 +198,7 @@
     var lists = S.data.lists, open = 0;
     lists.forEach(function (l) { var s = stats(l); open += s[1] - s[0]; });
     var shop = shopRows().filter(function (r) { return !r.it.done; }).length;
-    var h = top('Hi, ' + S.me.name, open + ' open across your lists');
+    var h = top(greeting() + ', ' + S.me.name, dueLine(open));
     lists.forEach(function (l) {
       var s = stats(l), pct = s[1] ? Math.round(s[0] / s[1] * 100) : 0, next = upNext(l), mine = l.key === 'personal' || l.key === 'work';
       h += '<div class="homecard' + (mine ? ' big' : '') + '"><button class="homehead" data-act="gotolist" data-key="' + esc(l.key) + '"><span class="name">' + esc(l.name) + '</span>' +
@@ -212,6 +230,7 @@
 
   // ---------- chores ----------
   var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function dayName(d) { return DAYS[new Date(d + 'T12:00:00').getDay()]; }
   function personName(id) { if (id === 'all') return 'Everyone'; var p = (S.data.people || []).filter(function (x) { return x.id === id; })[0]; return p ? p.name : id; }
   function schedule(c) { return c.days.length ? c.days.map(function (d) { return DAYS[d]; }).join(', ') : 'Every day'; }
   function choreRows() { return (S.data.chores || []).filter(function (c) { return c.today || c.missed; }); }
@@ -220,7 +239,7 @@
     var late = c.missed && !c.done;
     return '<div class="item' + (c.done ? ' done' : '') + '" data-chore="' + c.id + '"><input type="checkbox" data-act="chorecheck" aria-label="Done"' + (c.done ? ' checked' : '') + '>' +
       '<div class="body"><span class="t">' + esc(c.text) + '</span>' +
-      (late && c.today ? '<div class="meta"><span class="chip late">Missed ' + fmtDue(c.missed) + '</span></div>' : '') + '</div></div>';
+      (late && c.today ? '<div class="meta"><span class="chip late">Missed since ' + dayName(c.missed) + '</span></div>' : '') + '</div></div>';
   }
   function choresView() {
     var h = top('Chores', 'Today, ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getDate());
@@ -239,7 +258,7 @@
       h += '<div class="pane on"><div class="pane-head"><h2>Missed</h2></div><section class="sec">';
       olds.forEach(function (c) {
         h += '<div class="item" data-chore="' + c.id + '" data-day="' + c.missed + '"><input type="checkbox" data-act="chorecheck" aria-label="Done">' +
-          '<div class="body"><span class="t">' + esc(c.text) + '</span><div class="meta"><span class="chip late">' + fmtDue(c.missed) + '</span></div></div></div>';
+          '<div class="body"><span class="t">' + esc(c.text) + '</span><div class="meta"><span class="chip late">Missed since ' + dayName(c.missed) + '</span></div></div></div>';
       });
       h += '</section></div>';
     }
@@ -347,7 +366,7 @@
     } else {
       var views = { home: homeView, lists: listsView, chores: choresView, shop: shopView, settings: settingsView };
       var body = (views[S.view] || homeView)();
-      var tab = function (key, label) { return '<button class="' + (S.view === key ? 'on' : '') + '" data-act="tab" data-v="' + key + '">' + ICONS[key] + '<span>' + label + '</span></button>'; };
+      var tab = function (key, label) { var bn = badgeFor(key); return '<button class="' + (S.view === key ? 'on' : '') + '" data-act="tab" data-v="' + key + '"><span class="ico">' + ICONS[key] + (bn ? '<i class="badge' + (key === 'chores' ? ' red' : '') + '">' + (bn > 99 ? '99+' : bn) + '</i>' : '') + '</span><span>' + label + '</span></button>'; };
       app.innerHTML = '<div class="shell"><nav class="tabs">' + tab('home', 'Home') + tab('lists', 'Lists') + tab('chores', 'Chores') + tab('shop', 'Shopping') + tab('settings', 'Settings') + '</nav><main class="main">' + body + '</main></div>' +
         sheetHtml() + (S.toast ? '<div class="toast"><span>' + esc(S.toast.msg) + '</span>' + (S.toast.undo ? '<button data-act="undo">Undo</button>' : '') + '</div>' : '');
     }
@@ -384,6 +403,10 @@
   var actions = {
     tab: function (b) { S.view = b.dataset.v; render(); window.scrollTo(0, 0); },
     gotolist: function (b) { S.listKey = b.dataset.key; S.view = 'lists'; render(); window.scrollTo(0, 0); },
+    theme: function () {
+      var next = theme() === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next); store('todo-theme', next); render();
+    },
     gotochores: function () { S.view = 'chores'; render(); window.scrollTo(0, 0); },
     choreday: function (b) { var d = +b.dataset.v, i = S.choreDays.indexOf(d); if (i >= 0) S.choreDays.splice(i, 1); else S.choreDays.push(d); render(); },
     chorecheck: function (b) {
@@ -546,6 +569,7 @@
 
   function start() {
     S.hideDone = store('todo-hide') === '1';
+    var th = store('todo-theme'); if (th) document.documentElement.setAttribute('data-theme', th);
     S.loginUser = store('todo-last-user') || '';
     S.me = null; S.data = null; S.raw = ''; S.view = 'home'; S.sheet = null;
     api('GET', '/api/users').then(function (u) {
