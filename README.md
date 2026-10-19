@@ -20,14 +20,14 @@ A shared checklist for Doug and Roman. Each person signs in with their own PIN o
 - `src/worker.js` the server: PIN login, lists, items, shopping.
 - `src/config.js` the people, the lists, the starting items, the store names. Change names and starter items here.
 - `public/` the app screens (index.html, app.js, styles.css, icons).
-- `wrangler.jsonc` Cloudflare settings. Put your D1 database id on the `database_id` line.
+- `wrangler.jsonc` Cloudflare settings. The database is created on first deploy.
 - `preview/` builds the sample data preview. Not needed to run the app.
 
 ## Setup (once)
 
-1. Cloudflare dashboard, Storage and databases, D1, create a database named `todo-db`. Copy its id into `wrangler.jsonc`.
-2. Workers and Pages, create, import the `todo` GitHub repo. Production branch `main`. Deploy command `npx wrangler deploy`.
-3. In the Worker settings, Variables and secrets, add two secrets: `PIN_DOUG` and `PIN_ROMAN`. Type the PINs yourself. Nobody else needs to see them.
+1. Cloudflare dashboard, Workers and Pages, Create, Import a repository, pick the `todo` repo. Production branch `main`. Leave the build command empty. Deploy command `npx wrangler deploy`.
+2. The first deploy creates the `todo-db` database by itself. If it complains about the database, create one named `todo-db` in Storage and databases, D1, and put its id under `database_name` in `wrangler.jsonc` as `"database_id"`.
+3. In the Worker settings, Variables and secrets, add two secrets: `PIN_DOUG` and `PIN_ROMAN`. Type the PINs yourself. Nobody else needs to see them. Redeploy once after adding them.
 4. Open the live site on each phone, sign in, then Share, Add to Home Screen.
 5. In Settings on Doug's phone, paste the backup from the old app under Bring in my old list.
 
