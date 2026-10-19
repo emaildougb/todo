@@ -1,5 +1,5 @@
 {
-  "name": "todo-app",
+  "name": "todo",
   "private": true,
   "devDependencies": {
     "wrangler": "^4.100.0"

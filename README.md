@@ -1,6 +1,6 @@
 # To Do
 
-**Live site:** shown in Cloudflare after the first deploy (Workers and Pages, then todo-app, then Visit). It looks like https://todo-app.YOURNAME.workers.dev. Paste it here once you have it.
+**Live site:** https://todo.emaildougb.workers.dev
 
 **Upload files:** https://github.com/Emaildougb/todo/upload/main
 
