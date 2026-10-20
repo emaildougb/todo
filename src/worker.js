@@ -1,5 +1,5 @@
 // To Do app server. Serves /api/* here; the web pages come from the assets folder (public/).
-import { USERS, LISTS, SEED, DEFAULT_STORES } from './config.js';
+import { USERS, LISTS, SEED, DEFAULT_STORES, DEFAULT_FOOD_STORES } from './config.js';
 
 const SESSION_DAYS = 90;
 const COOKIE = 'todo_session';
@@ -63,8 +63,11 @@ function ensureSchema(env) {
         ['due', "TEXT DEFAULT ''"],
         ['created_by', "TEXT DEFAULT 'doug'"],
         ['updated_at', 'INTEGER DEFAULT 0'],
+        ['shop', "TEXT DEFAULT ''"],
       ]);
       await seed(env);
+      // 1.1.0: Roman's own list is now called "Roman's To do" (only if it still has the old name).
+      await env.DB.prepare("UPDATE lists SET name = ? WHERE key = 'roman' AND name = 'Roman'").bind("Roman's To do").run();
     })().catch((e) => {
       schemaReady = null;
       throw e;
@@ -180,26 +183,29 @@ const isParent = (u) => u.role === 'parent';
 const canSee = (u, listKey) => !!LISTS.find((l) => l.key === listKey && l.members.includes(u.id));
 
 // ---------- reading ----------
-async function getStores(env) {
-  const r = await env.DB.prepare("SELECT v FROM settings WHERE k='stores'").first();
+// kind is '' for the Other shopping list (hardware and so on) or 'food' for groceries.
+async function getStores(env, kind = '') {
+  const food = kind === 'food';
+  const fallback = food ? DEFAULT_FOOD_STORES : DEFAULT_STORES;
+  const r = await env.DB.prepare('SELECT v FROM settings WHERE k = ?').bind(food ? 'stores_food' : 'stores').first();
   try {
-    return r ? JSON.parse(r.v) : DEFAULT_STORES;
+    return r ? JSON.parse(r.v) : fallback;
   } catch (e) {
-    return DEFAULT_STORES;
+    return fallback;
   }
 }
 
 async function buildState(env, user) {
   const visible = LISTS.filter((l) => l.members.includes(user.id)).map((l) => l.key);
   const lists = (await env.DB.prepare('SELECT id, key, name FROM lists ORDER BY pos').all()).results.filter((l) => visible.includes(l.key));
-  const out = { me: pub(user), stores: await getStores(env), lists: [] };
+  const out = { me: pub(user), stores: await getStores(env), stores_food: await getStores(env, 'food'), lists: [] };
   if (!lists.length) return out;
   const ph = lists.map(() => '?').join(',');
   const ids = lists.map((l) => l.id);
   const secs = (await env.DB.prepare(`SELECT id, list_id, name FROM sections WHERE list_id IN (${ph}) ORDER BY pos, id`).bind(...ids).all()).results;
   const rows = (
     await env.DB.prepare(
-      `SELECT i.id, i.section_id, i.parent_id, i.text, i.done, i.store, i.priority, i.due, i.created_by
+      `SELECT i.id, i.section_id, i.parent_id, i.text, i.done, i.store, i.shop, i.priority, i.due, i.created_by
        FROM items i JOIN sections s ON s.id = i.section_id
        WHERE s.list_id IN (${ph}) AND COALESCE(i.deleted, 0) = 0 ORDER BY i.pos, i.id`
     ).bind(...ids).all()
@@ -207,7 +213,7 @@ async function buildState(env, user) {
   const byId = {};
   const tops = {};
   for (const r of rows) {
-    const it = { id: r.id, text: r.text, done: !!r.done, store: r.store || '', priority: r.priority || 'normal', due: r.due || '', created_by: r.created_by, kids: [] };
+    const it = { id: r.id, text: r.text, done: !!r.done, store: r.store || '', shop: r.shop || '', priority: r.priority || 'normal', due: r.due || '', created_by: r.created_by, kids: [] };
     byId[r.id] = it;
     if (!r.parent_id) (tops[r.section_id] = tops[r.section_id] || []).push(it);
   }
@@ -275,10 +281,14 @@ async function createItem(env, user, b) {
     if (!p || p.section_id !== sec.id || p.parent_id) return fail('Not found', 404);
     parentId = p.id;
   }
-  const stores = await getStores(env);
+  const shop = b.shop === 'food' ? 'food' : '';
+  const stores = await getStores(env, shop);
   const id = await insertItem(env, sec.id, parentId, text, await nextPos(env, sec.id, parentId), user.id);
   const extra = [];
-  if (b.store && stores.includes(b.store)) extra.push(['store', b.store]);
+  if (b.store && stores.includes(b.store)) {
+    extra.push(['store', b.store]);
+    if (shop) extra.push(['shop', shop]);
+  }
   if (['high', 'low'].includes(b.priority)) extra.push(['priority', b.priority]);
   if (/^\d{4}-\d{2}-\d{2}$/.test(b.due || '')) extra.push(['due', b.due]);
   for (const [k, v] of extra) await env.DB.prepare(`UPDATE items SET ${k} = ? WHERE id = ?`).bind(v, id).run();
@@ -290,11 +300,35 @@ async function patchItem(env, user, id, b) {
   const it = await getItem(env, id);
   if (!it || !canSee(user, it.list_key)) return fail('Not found', 404);
   const ownsIt = isParent(user) || it.created_by === user.id;
-  const editing = ['text', 'store', 'priority', 'due', 'deleted', 'section_id'].some((k) => k in b);
+  const editing = ['text', 'store', 'shop', 'priority', 'due', 'deleted', 'section_id', 'parent_id'].some((k) => k in b);
   if (editing && !ownsIt) return fail('You can check this off, but only the person who added it can change it.', 403);
-  const stores = await getStores(env);
+  if (('section_id' in b || 'parent_id' in b) && !isParent(user)) return fail('Only Dad can move items between lists or group them.', 403);
+  const shop = 'shop' in b ? (b.shop === 'food' ? 'food' : '') : it.shop || '';
+  const stores = await getStores(env, shop);
   const sets = [];
   const vals = [];
+  let oldParent = null;
+  let newParent = null;
+  if ('shop' in b) {
+    sets.push('shop = ?');
+    vals.push(shop);
+  }
+  if ('parent_id' in b) {
+    // Put under another item in the same section, or (null) turn a sub item back into a normal item.
+    if (b.parent_id) {
+      const p = await getItem(env, b.parent_id);
+      if (!p || p.id === it.id || p.section_id !== it.section_id || p.parent_id || p.deleted) return fail('Pick an item in the same section.');
+      const kids = await env.DB.prepare('SELECT COUNT(*) AS n FROM items WHERE parent_id = ? AND COALESCE(deleted, 0) = 0').bind(it.id).first();
+      if (kids && kids.n > 0) return fail('This item has sub items. Move or delete those first.');
+      sets.push('parent_id = ?', 'pos = ?');
+      vals.push(p.id, await nextPos(env, it.section_id, p.id));
+      newParent = p.id;
+    } else if (it.parent_id) {
+      sets.push('parent_id = ?', 'pos = ?');
+      vals.push(null, await nextPos(env, it.section_id, null));
+    }
+    oldParent = it.parent_id;
+  }
   if ('text' in b) {
     const t = clean(b.text);
     if (!t) return fail('Type something first.');
@@ -317,13 +351,13 @@ async function patchItem(env, user, id, b) {
     sets.push('deleted = ?');
     vals.push(b.deleted ? 1 : 0);
   }
-  if ('section_id' in b && isParent(user) && !it.parent_id) {
+  if ('section_id' in b && !it.parent_id && Number(b.section_id) !== it.section_id) {
+    // Move to another section or list. Sub items follow, and it lands at the end of that section.
     const sec = await getSection(env, b.section_id);
-    if (sec && canSee(user, sec.list_key)) {
-      sets.push('section_id = ?');
-      vals.push(sec.id);
-      await env.DB.prepare('UPDATE items SET section_id = ? WHERE parent_id = ?').bind(sec.id, it.id).run();
-    }
+    if (!sec || !canSee(user, sec.list_key)) return fail('Pick a place to move it to.');
+    sets.push('section_id = ?', 'pos = ?');
+    vals.push(sec.id, await nextPos(env, sec.id, null));
+    await env.DB.prepare('UPDATE items SET section_id = ? WHERE parent_id = ?').bind(sec.id, it.id).run();
   }
   if ('done' in b) {
     sets.push('done = ?');
@@ -336,6 +370,31 @@ async function patchItem(env, user, id, b) {
   if ('done' in b) await env.DB.prepare('UPDATE items SET done = ?, updated_at = ? WHERE parent_id = ? AND COALESCE(deleted, 0) = 0').bind(b.done ? 1 : 0, Date.now(), id).run();
   if ('deleted' in b) await env.DB.prepare('UPDATE items SET deleted = ?, updated_at = ? WHERE parent_id = ?').bind(b.deleted ? 1 : 0, Date.now(), id).run();
   if ('done' in b || 'deleted' in b) await recalcParent(env, it.parent_id);
+  if ('parent_id' in b) {
+    await recalcParent(env, oldParent);
+    await recalcParent(env, newParent);
+  }
+  return json({ ok: true });
+}
+
+// Slide an item up or down inside its own group. { before: id } puts it ahead of that item,
+// { to: 'top' } puts it first, and anything else puts it last.
+async function moveWithin(env, user, id, b) {
+  const it = await getItem(env, id);
+  if (!it || !canSee(user, it.list_key) || it.deleted) return fail('Not found', 404);
+  if (!(isParent(user) || it.created_by === user.id)) return fail('Only the person who added it can move it.', 403);
+  const rows = it.parent_id
+    ? (await env.DB.prepare('SELECT id FROM items WHERE parent_id = ? AND COALESCE(deleted, 0) = 0 ORDER BY pos, id').bind(it.parent_id).all()).results
+    : (await env.DB.prepare('SELECT id FROM items WHERE section_id = ? AND parent_id IS NULL AND COALESCE(deleted, 0) = 0 ORDER BY pos, id').bind(it.section_id).all()).results;
+  const ids = rows.map((r) => r.id).filter((x) => x !== it.id);
+  let at = ids.length;
+  if (b.to === 'top') at = 0;
+  else if (b.before) {
+    at = ids.indexOf(Number(b.before));
+    if (at < 0) return fail('Not found', 404);
+  }
+  ids.splice(at, 0, it.id);
+  await env.DB.batch(ids.map((x, i) => env.DB.prepare('UPDATE items SET pos = ? WHERE id = ?').bind(i, x)));
   return json({ ok: true });
 }
 
@@ -353,9 +412,20 @@ async function sections(env, user, method, id, request) {
   const sec = await getSection(env, id);
   if (!sec || !canSee(user, sec.list_key)) return fail('Not found', 404);
   if (method === 'PATCH') {
-    const name = clean(b.name, 60);
-    if (!name) return fail('Give the section a name.');
-    await env.DB.prepare('UPDATE sections SET name = ? WHERE id = ?').bind(name, sec.id).run();
+    if ('list_id' in b) {
+      // Move the whole section, with everything in it, to another list.
+      const list = await env.DB.prepare('SELECT id, key FROM lists WHERE id = ?').bind(b.list_id).first();
+      if (!list || !canSee(user, list.key)) return fail('Pick a list to move it to.');
+      if (list.id !== sec.list_id) {
+        const mp = await env.DB.prepare('SELECT MAX(pos) AS m FROM sections WHERE list_id = ?').bind(list.id).first();
+        await env.DB.prepare('UPDATE sections SET list_id = ?, pos = ? WHERE id = ?').bind(list.id, (mp && mp.m != null ? mp.m : -1) + 1, sec.id).run();
+      }
+    }
+    if ('name' in b) {
+      const name = clean(b.name, 60);
+      if (!name) return fail('Give the section a name.');
+      await env.DB.prepare('UPDATE sections SET name = ? WHERE id = ?').bind(name, sec.id).run();
+    }
     return json({ ok: true });
   }
   await env.DB.batch([env.DB.prepare('DELETE FROM items WHERE section_id = ?').bind(sec.id), env.DB.prepare('DELETE FROM sections WHERE id = ?').bind(sec.id)]);
@@ -434,7 +504,7 @@ async function saveStores(env, user, request) {
   const b = await request.json().catch(() => ({}));
   const list = (Array.isArray(b.stores) ? b.stores : []).map((s) => clean(s, 30)).filter(Boolean).slice(0, 12);
   if (!list.length) return fail('Keep at least one store.');
-  await env.DB.prepare("INSERT OR REPLACE INTO settings (k, v) VALUES ('stores', ?)").bind(JSON.stringify([...new Set(list)])).run();
+  await env.DB.prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)').bind(b.kind === 'food' ? 'stores_food' : 'stores', JSON.stringify([...new Set(list)])).run();
   return json({ ok: true });
 }
 
@@ -531,6 +601,7 @@ async function route(request, env, url) {
   }
   if (name === 'chores' && ['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) return chores(env, user, method, id, request, url);
   if (name === 'pin' && method === 'POST') return changePin(env, user, request);
+  if (name === 'items' && id && parts[3] === 'move' && method === 'POST') return moveWithin(env, user, id, await request.json().catch(() => ({})));
   if (name === 'items' && method === 'POST') return createItem(env, user, await request.json().catch(() => ({})));
   if (name === 'items' && id && method === 'PATCH') return patchItem(env, user, id, await request.json().catch(() => ({})));
   if (name === 'items' && id && method === 'DELETE') return patchItem(env, user, id, { deleted: true });

@@ -10,10 +10,12 @@
 
 A shared checklist for Doug and Roman. Each person signs in with their own PIN on their own phone and sees the same lists. It runs free on Cloudflare (a Worker plus a D1 database).
 
-- Doug sees Personal, Work, Roman and Dad, and Roman.
-- Roman sees only Roman and Dad, and Roman, plus his own chores. He can add items and check off anything he sees. He can only edit or delete items he added.
+- Doug sees Personal, Work, Roman and Dad, and Roman's To do.
+- Roman sees only Roman and Dad, and Roman's To do, plus his own chores. He can add items and check off anything he sees. He can only edit or delete items he added.
 - Chores: Doug sets repeating chores for Roman (every day or chosen days). Roman checks them off on his phone. A chore he skipped shows red as missed until he checks it.
-- Any item with a store shows up on the Shopping tab, grouped by store.
+- Any item with a store shows up on the Shopping tab, in the Food list or the Other list, grouped by store.
+- Doug can move items and whole sections between lists, group items under a parent, slide items up and down, and swipe a row left to delete.
+- Roman's phone opens on Chores. He sees Roman and Dad and Roman's To do.
 
 ## Files
 

@@ -172,3 +172,32 @@ h1{font-size:30px}
 .badge{position:absolute;top:-6px;right:-12px;min-width:18px;height:18px;padding:0 5px;border-radius:99px;background:var(--muted);color:var(--bg);font-style:normal;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .badge.red{background:var(--danger);color:#fff}
 .homecard.big{border-width:1.5px}
+
+/* ---- 1.1.0: stacked list buttons, swipe to delete, grip, flag ---- */
+.listgrid,.shoptabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0 4px}
+.listgrid button,.shoptabs button{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;min-height:48px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;text-align:left}
+.listgrid button:last-child:nth-child(odd){grid-column:1/-1}
+.listgrid button.on,.shoptabs button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.ln{font-weight:600;min-width:0;overflow-wrap:anywhere}
+.lc{font-size:12px;font-weight:700;min-width:22px;height:22px;padding:0 6px;border-radius:99px;background:var(--soft);color:var(--ink);display:inline-flex;align-items:center;justify-content:center;flex:none}
+.on>.lc{background:rgba(255,255,255,.28);color:inherit}
+@media (min-width:900px){ .listgrid{display:none} }
+
+.swrap{position:relative;overflow:hidden}
+.swrap>.item,.swrap>.kid,.swrap>.shoprow{position:relative;transition:transform .18s ease;touch-action:pan-y}
+.swrap>.item,.swrap>.shoprow{background:var(--card)}
+.swrap>.kid{background:var(--soft)}
+.swdel{position:absolute;top:0;right:0;bottom:0;width:80px;border:0;background:var(--danger);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.swdel svg{width:24px;height:24px}
+.flag{flex:none;background:none;border:0;font-size:18px;line-height:1;padding:2px 4px;color:var(--muted);opacity:.5;cursor:pointer}
+.flag.high{color:var(--danger);opacity:1}
+.grip{flex:none;color:var(--muted);font-size:22px;line-height:1;padding:0 6px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;opacity:.7}
+.swrap.dragwrap{overflow:visible;z-index:5}
+.item.dragging,.kid.dragging{transition:none!important;box-shadow:0 8px 20px rgba(0,0,0,.28);border-radius:10px}
+.swrap.dropbefore{box-shadow:inset 0 3px 0 var(--accent)}
+.swrap.dropend{box-shadow:inset 0 -3px 0 var(--accent)}
+.saving{opacity:.55}
+.saving .count{font-style:italic}
+.seg.two{grid-template-columns:1fr 1fr}
+.letdad{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:14px}
+.movesel{font-size:13px;padding:4px 6px;max-width:112px}

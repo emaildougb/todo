@@ -1,10 +1,10 @@
 import fs from 'fs';
-import { USERS, LISTS, DEFAULT_STORES, SEED } from '../src/config.js';
+import { USERS, LISTS, DEFAULT_STORES, DEFAULT_FOOD_STORES, SEED } from '../src/config.js';
 const root = new URL('..', import.meta.url).pathname;
 const css = fs.readFileSync(root + 'public/styles.css', 'utf8');
 const js = fs.readFileSync(root + 'public/app.js', 'utf8');
 const mock = fs.readFileSync(root + 'preview/mock.js', 'utf8');
-const cfg = JSON.stringify({ users: USERS, lists: LISTS, stores: DEFAULT_STORES, seed: SEED });
+const cfg = JSON.stringify({ users: USERS, lists: LISTS, stores: DEFAULT_STORES, foodStores: DEFAULT_FOOD_STORES, seed: SEED });
 const bar = `<div class="preview-bar"><span>Preview with sample data. Nothing saves.</span><span class="pv-btns"><button id="pv-doug">Doug</button><button id="pv-roman">Roman</button></span></div>`;
 const barJs = `
 function pv(id){ window.__mock.as(id); document.getElementById('pv-doug').className=id==='doug'?'on':''; document.getElementById('pv-roman').className=id==='roman'?'on':''; window.TodoApp.start(); }

@@ -1,10 +1,10 @@
 /* Preview only: pretends to be the server, in memory. Nothing saves. */
 (function () {
   window.__PREVIEW = true;
-  var CFG = window.__CFG, nid = 1, db = { lists: [], secs: [], items: [], stores: CFG.stores.slice() };
+  var CFG = window.__CFG, nid = 1, db = { lists: [], secs: [], items: [], stores: CFG.stores.slice(), food: CFG.foodStores.slice() };
   var me = null;
   function add(secId, parent, text, extra) {
-    var it = { id: nid++, sec: secId, parent: parent || 0, text: text, done: false, store: '', priority: 'normal', due: '', by: 'doug', del: false };
+    var it = { id: nid++, sec: secId, parent: parent || 0, text: text, done: false, store: '', shop: '', priority: 'normal', due: '', by: 'doug', del: false };
     for (var k in (extra || {})) it[k] = extra[k];
     db.items.push(it); return it;
   }
@@ -46,15 +46,15 @@
   function pub(u) { return u; }
   function visible(l) { return l.members.indexOf(me.id) >= 0; }
   function state() {
-    var out = { me: me, stores: db.stores, lists: [] };
+    var out = { me: me, stores: db.stores, stores_food: db.food, lists: [] };
     db.lists.filter(visible).forEach(function (l) {
       var o = { id: l.id, key: l.key, name: l.name, sections: [] };
       db.secs.filter(function (s) { return s.list === l.id; }).forEach(function (s) {
         var tops = [];
         db.items.filter(function (i) { return i.sec === s.id && !i.del && !i.parent; }).forEach(function (i) {
-          tops.push({ id: i.id, text: i.text, done: i.done, store: i.store, priority: i.priority, due: i.due, created_by: i.by,
+          tops.push({ id: i.id, text: i.text, done: i.done, store: i.store, shop: i.shop, priority: i.priority, due: i.due, created_by: i.by,
             kids: db.items.filter(function (k) { return k.parent === i.id && !k.del; }).map(function (k) {
-              return { id: k.id, text: k.text, done: k.done, store: k.store, priority: k.priority, due: k.due, created_by: k.by, kids: [] }; }) });
+              return { id: k.id, text: k.text, done: k.done, store: k.store, shop: k.shop, priority: k.priority, due: k.due, created_by: k.by, kids: [] }; }) });
         });
         o.sections.push({ id: s.id, name: s.name, items: tops });
       });
@@ -89,7 +89,7 @@
         return res(404, { error: 'Not found.' });
       }
       if (p === '/api/pin') return res(200, { ok: true });
-      if (p === '/api/stores') { db.stores = b.stores.map(function (s) { return String(s).trim(); }).filter(Boolean); return res(200, {}); }
+      if (p === '/api/stores') { var sl = b.stores.map(function (s) { return String(s).trim(); }).filter(Boolean); if (b.kind === 'food') db.food = sl; else db.stores = sl; return res(200, {}); }
       if (p === '/api/import') return res(200, { imported: 0 });
       if (p === '/api/items' && m === 'POST') {
         var sec = b.section_id;
@@ -99,19 +99,42 @@
           if (!sh) { if (kid()) sh = ss[0]; else { sh = { id: nid++, list: b.list_id, name: 'Shopping' }; db.secs.push(sh); } }
           sec = sh.id;
         }
-        var st = db.stores.indexOf(b.store) >= 0 ? b.store : '';
-        var it = add(sec, b.parent_id || 0, b.text, { store: st, priority: b.priority || 'normal', by: me.id });
+        var sl2 = b.shop === 'food' ? db.food : db.stores, st = sl2.indexOf(b.store) >= 0 ? b.store : '';
+        var it = add(sec, b.parent_id || 0, b.text, { store: st, shop: st && b.shop === 'food' ? 'food' : '', priority: b.priority || 'normal', by: me.id });
         recalc(it.parent); return res(200, { id: it.id });
+      }
+      var mv = /^\/api\/items\/(\d+)\/move$/.exec(p);
+      if (mv && m === 'POST') {
+        var mi = item(+mv[1]); if (!mi) return res(404, { error: 'Not found.' });
+        if (kid() && mi.by !== me.id) return res(403, { error: 'Only the person who added it can move it.' });
+        var grp = db.items.filter(function (k) { return !k.del && k.parent === mi.parent && k.sec === mi.sec && k !== mi; });
+        db.items = db.items.filter(function (k) { return k !== mi; });
+        var at = b.to === 'top' ? grp[0] : (b.before ? grp.filter(function (k) { return k.id === +b.before; })[0] : null);
+        if (at) db.items.splice(db.items.indexOf(at), 0, mi);
+        else { var lastk = grp[grp.length - 1]; if (lastk) db.items.splice(db.items.indexOf(lastk) + 1, 0, mi); else db.items.push(mi); }
+        return res(200, {});
       }
       var mm = /^\/api\/items\/(\d+)$/.exec(p);
       if (mm) {
         var i = item(+mm[1]); if (!i) return res(404, { error: 'Not found.' });
         var own = !kid() || i.by === me.id;
         if (m === 'DELETE') { if (!own) return res(403, { error: 'You can only delete your own items.' }); i.del = true; recalc(i.parent); return res(200, {}); }
-        var edits = ['text', 'store', 'priority', 'due', 'deleted'].some(function (k) { return k in b; });
+        var edits = ['text', 'store', 'shop', 'priority', 'due', 'deleted', 'section_id', 'parent_id'].some(function (k) { return k in b; });
         if (edits && !own) return res(403, { error: 'You can only change your own items.' });
         if ('text' in b) i.text = String(b.text).trim() || i.text;
-        if ('store' in b) i.store = db.stores.indexOf(b.store) >= 0 ? b.store : '';
+        if (('section_id' in b || 'parent_id' in b) && kid()) return res(403, { error: 'Only Dad can move items between lists or group them.' });
+        if ('shop' in b) i.shop = b.shop === 'food' ? 'food' : '';
+        if ('store' in b) i.store = (i.shop === 'food' ? db.food : db.stores).indexOf(b.store) >= 0 ? b.store : '';
+        if ('parent_id' in b) {
+          var oldp = i.parent;
+          if (b.parent_id) { var pp = item(+b.parent_id); if (!pp || pp.sec !== i.sec || pp.parent || pp.id === i.id) return res(400, { error: 'Pick an item in the same section.' }); if (db.items.some(function (k) { return k.parent === i.id && !k.del; })) return res(400, { error: 'This item has sub items. Move or delete those first.' }); i.parent = pp.id; }
+          else i.parent = 0;
+          recalc(oldp); recalc(i.parent);
+        } else if ('section_id' in b && !i.parent && +b.section_id !== i.sec) {
+          var ns = db.secs.filter(function (s) { return s.id === +b.section_id; })[0]; if (!ns) return res(400, { error: 'Pick a place to move it to.' });
+          i.sec = ns.id; db.items.forEach(function (k) { if (k.parent === i.id) k.sec = ns.id; });
+          db.items = db.items.filter(function (k) { return k !== i; }); db.items.push(i);
+        }
         if ('priority' in b) i.priority = b.priority; if ('due' in b) i.due = b.due;
         if ('deleted' in b) { i.del = !!b.deleted; recalc(i.parent); }
         if ('done' in b) { i.done = !!b.done; db.items.forEach(function (k) { if (k.parent === i.id) k.done = i.done; }); recalc(i.parent); }
@@ -129,6 +152,7 @@
       }
       mm = /^\/api\/sections\/(\d+)$/.exec(p);
       if (mm && m === 'DELETE') { db.secs = db.secs.filter(function (s) { return s.id !== +mm[1]; }); return res(200, {}); }
+      if (mm && m === 'PATCH') { var ps = db.secs.filter(function (s) { return s.id === +mm[1]; })[0]; if (ps && 'list_id' in b) ps.list = +b.list_id; if (ps && 'name' in b) ps.name = b.name; return res(200, {}); }
       return res(404, { error: 'Not found.' });
     }
   };

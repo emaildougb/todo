@@ -12,10 +12,11 @@ export const LISTS = [
   { key: 'personal', name: 'Personal', members: ['doug'] },
   { key: 'work', name: 'Work', members: ['doug'] },
   { key: 'roman-doug', name: 'Roman and Dad', members: ['doug', 'roman'] },
-  { key: 'roman', name: 'Roman', members: ['doug', 'roman'] },
+  { key: 'roman', name: "Roman's To do", members: ['doug', 'roman'] },
 ];
 
 export const DEFAULT_STORES = ['Harbor Freight', 'Home Depot', 'Amazon', 'Other'];
+export const DEFAULT_FOOD_STORES = ['Grocery store', 'Costco', 'Other'];
 
 // Starting items, loaded once into an empty database. An item is a string, or { text, kids: [...] }.
 export const SEED = {

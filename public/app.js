@@ -2,14 +2,16 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.0.0';
+  var APP_VER = '1.1.0';
   var NEWS = [
+    { v: '1.1.0', d: 'Oct 20, 2026', notes: ['Swipe left to delete, slide items up and down with the grip, move items and whole sections between lists, group items under a parent, Food and Other shopping lists, stacked list buttons, and an instant Add.'] },
     { v: '1.0.0', d: 'Oct 18, 2026', notes: ['First shared version: Personal, Work, and Roman lists, chores for Roman, shopping by store, PIN sign in, and one list on every phone.'] },
   ];
 
   var S = {
     me: null, users: [], data: null, raw: '', view: 'home', listKey: null, sheet: null,
     toast: null, drafts: {}, choreDays: [], editChore: 0, hideDone: false, newer: false, pop: null, loginUser: '', err: '', busy: false,
+    adding: false, pendingShop: [], shopTab: 'other',
   };
   var app = document.getElementById('app');
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -47,7 +49,7 @@
   }
   function canRedraw() {
     var a = document.activeElement;
-    return !S.sheet && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
+    return !drag && !S.sheet && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
   }
 
   // ---------- finding things ----------
@@ -81,17 +83,27 @@
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   }
   function fmtDue(s) { var p = s.split('-'); return MONTHS[+p[1] - 1] + ' ' + +p[2]; }
-  function shopRows() {
+  // kind: 'food', 'other', or nothing for both.
+  function shopRows(kind) {
     var rows = [];
+    var keep = function (it) { return it.store && (!kind || (it.shop === 'food') === (kind === 'food')); };
     S.data.lists.forEach(function (l) {
       l.sections.forEach(function (s) {
         s.items.forEach(function (it) {
-          if (it.store) rows.push({ it: it, list: l, where: l.name + ' › ' + s.name });
-          it.kids.forEach(function (k) { if (k.store) rows.push({ it: k, list: l, where: l.name + ' › ' + it.text }); });
+          if (keep(it)) rows.push({ it: it, list: l, where: l.name + ' › ' + s.name });
+          it.kids.forEach(function (k) { if (keep(k)) rows.push({ it: k, list: l, where: l.name + ' › ' + it.text }); });
         });
       });
     });
     return rows;
+  }
+  function storesFor(kind) { return (kind === 'food' ? S.data.stores_food : S.data.stores) || []; }
+  function firstView() { return S.me && S.me.role === 'kid' ? 'chores' : 'home'; }
+  // Every section of every list, for the Move to picker.
+  function moveTargets() {
+    var out = [];
+    S.data.lists.forEach(function (l) { l.sections.forEach(function (s) { out.push({ list: l, sec: s }); }); });
+    return out;
   }
 
   // ---------- small pieces of screen ----------
@@ -125,16 +137,30 @@
     return h ? '<div class="meta">' + h + '</div>' : '';
   }
 
-  function rowHtml(it, isKid) {
+  var TRASH = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
+  var FLAGS = { high: '⚑', normal: '⚐', low: '↓' };
+
+  // Every list row sits in a .swrap: the trash button waits behind it, and the grip on the right slides it up or down.
+  function rowHtml(it, isKid, parentId) {
     var has = !isKid && it.kids.length;
     var dn = has ? itemDone(it) : it.done;
     if (S.hideDone && dn) return '';
-    var h = '<div class="' + (isKid ? 'kid' : 'item') + (dn ? ' done' : '') + (S.pop === it.id ? ' pop' : '') + '" data-id="' + it.id + '">' +
+    var cls = (isKid ? 'kid' : 'item') + (dn ? ' done' : '') + (S.pop === it.id ? ' pop' : '');
+    var par = parentId || 0;
+    if (it.saving) {
+      return '<div class="swrap" data-par="' + par + '"><div class="' + cls + ' saving"><input type="checkbox" disabled aria-label="Saving"><div class="body"><span class="t">' + esc(it.text) + '</span></div><span class="count">saving</span></div></div>';
+    }
+    var ed = canEdit(it);
+    var h = '<div class="swrap" data-par="' + par + '">' +
+      (ed ? '<button class="swdel" data-act="swipedel" data-swid="' + it.id + '" aria-label="Delete">' + TRASH + '</button>' : '') +
+      '<div class="' + cls + '" data-id="' + it.id + '">' +
       '<input type="checkbox" data-act="toggle" aria-label="Done"' + (dn ? ' checked' : '') + '>' +
       '<div class="body" data-act="open"><span class="t">' + esc(it.text) + '</span>' + metaHtml(it) + '</div>';
     if (has) h += '<span class="count">' + it.kids.filter(function (k) { return k.done; }).length + '/' + it.kids.length + '</span>';
-    h += '</div>';
-    if (has) it.kids.forEach(function (k) { h += rowHtml(k, true); });
+    if (ed) h += '<button class="flag ' + (it.priority || 'normal') + '" data-act="flag" aria-label="Priority: ' + (it.priority || 'normal') + '. Tap to change.">' + FLAGS[it.priority || 'normal'] + '</button>' +
+      '<span class="grip" data-grip="1" role="button" aria-label="Hold and slide to reorder">≡</span>';
+    h += '</div></div>';
+    if (has) it.kids.forEach(function (k) { h += rowHtml(k, true, it.id); });
     return h;
   }
 
@@ -143,15 +169,22 @@
     var h = '<div class="pane' + (on ? ' on' : '') + '" data-list="' + l.id + '">' +
       '<div class="pane-head"><h2>' + esc(l.name) + '</h2><span class="count">' + st[0] + ' of ' + st[1] + ' done</span></div>' +
       '<div class="bar"><div style="width:' + pct + '%"></div></div>';
+    if (l.key === 'roman-doug' && S.me.role === 'kid') h += '<div class="letdad">Anything you want to do with Dad? Let him know right here.</div>';
     l.sections.forEach(function (s) {
       var d = 0, t = 0;
       s.items.forEach(function (it) {
         if (it.kids.length) it.kids.forEach(function (k) { t++; if (k.done) d++; });
         else { t++; if (it.done) d++; }
       });
-      h += '<section class="sec" data-sec="' + s.id + '"><div class="sec-head"><h3>' + esc(s.name) + '</h3><span class="count">' + d + '/' + t + '</span>' +
+      var mv = '';
+      if (isParent() && S.data.lists.length > 1) {
+        mv = '<select class="movesel" data-movesec="1" aria-label="Move this section to another list"><option value="">Move to…</option>';
+        S.data.lists.forEach(function (o) { if (o.id !== l.id) mv += '<option value="' + o.id + '">' + esc(o.name) + '</option>'; });
+        mv += '</select>';
+      }
+      h += '<section class="sec" data-sec="' + s.id + '"><div class="sec-head"><h3>' + esc(s.name) + '</h3><span class="count">' + d + '/' + t + '</span>' + mv +
         (isParent() ? '<button class="icon" data-act="delsec" title="Delete section" aria-label="Delete section">&times;</button>' : '') + '</div>';
-      s.items.forEach(function (it) { h += rowHtml(it, false); });
+      s.items.forEach(function (it) { h += rowHtml(it, false, 0); });
       h += '<div class="add"><div class="addrow"><input type="text" data-draft="add-' + s.id + '" placeholder="Add an item" enterkeyhint="done" autocomplete="off">' +
         '<button class="pri" data-act="add">Add</button></div>' +
         '<details><summary>More</summary><div class="morerow"><select data-draft="st-' + s.id + '">' + options(S.data.stores, '', 'No store') + '</select>' +
@@ -282,30 +315,46 @@
     var lists = S.data.lists;
     if (!lists.some(function (l) { return l.key === S.listKey; })) S.listKey = lists[0] ? lists[0].key : null;
     var h = top('Lists', 'Check things off, tap an item for details');
-    h += '<div class="chips">';
-    lists.forEach(function (l) { h += '<button class="' + (l.key === S.listKey ? 'on' : '') + '" data-act="pick" data-key="' + esc(l.key) + '">' + esc(l.name) + '</button>'; });
+    h += '<div class="listgrid">';
+    lists.forEach(function (l) {
+      var st = stats(l), left = st[1] - st[0];
+      h += '<button class="' + (l.key === S.listKey ? 'on' : '') + '" data-act="pick" data-key="' + esc(l.key) + '"><span class="ln">' + esc(l.name) + '</span>' + (left ? '<span class="lc">' + left + '</span>' : '') + '</button>';
+    });
     h += '</div><div class="panes">';
     lists.forEach(function (l) { h += paneHtml(l, l.key === S.listKey); });
     return h + '</div>';
   }
 
   function shopView() {
-    var rows = shopRows();
-    var h = top('Shopping', 'Parts and supplies from every list');
-    h += '<div class="quick"><input type="text" data-draft="shop-text" placeholder="Add something to buy" enterkeyhint="done" autocomplete="off"><div class="row2">' +
-      '<select data-draft="shop-store">' + options(S.data.stores, S.data.stores[0], 'No store') + '</select><select data-draft="shop-list">';
+    var kind = S.shopTab === 'food' ? 'food' : 'other', stores = storesFor(kind);
+    var rows = shopRows(kind);
+    var left = function (k) { return shopRows(k).filter(function (r) { return !r.it.done; }).length; };
+    var nf = left('food'), no = left('other');
+    var h = top('Shopping', 'Food, and everything else');
+    h += '<div class="shoptabs"><button class="' + (kind === 'food' ? 'on' : '') + '" data-act="shoptab" data-v="food"><span class="ln">Food</span>' + (nf ? '<span class="lc">' + nf + '</span>' : '') + '</button>' +
+      '<button class="' + (kind === 'other' ? 'on' : '') + '" data-act="shoptab" data-v="other"><span class="ln">Other</span>' + (no ? '<span class="lc">' + no + '</span>' : '') + '</button></div>';
+    h += '<div class="quick"><input type="text" data-draft="shop-text" placeholder="' + (kind === 'food' ? 'Add food to buy' : 'Add something to buy') + '" enterkeyhint="done" autocomplete="off"><div class="row2">' +
+      '<select data-draft="shop-store">' + options(stores, stores[0], 'No store') + '</select><select data-draft="shop-list">';
     S.data.lists.forEach(function (l) { h += '<option value="' + l.id + '"' + (l.key === 'roman-doug' ? ' selected' : '') + '>' + esc(l.name) + '</option>'; });
     h += '</select></div><button class="pri" data-act="shopadd">Add</button></div>';
-    if (!rows.length) return h + '<div class="empty">Nothing to buy. Give any item a store (tap it, then pick a store) and it shows up here.</div>';
-    var groups = {}, order = S.data.stores.slice();
+    var pend = S.pendingShop.filter(function (p) { return p.shop === kind; });
+    if (pend.length) {
+      h += '<div class="sec">';
+      pend.forEach(function (p) { h += '<div class="shoprow saving"><input type="checkbox" disabled aria-label="Saving"><div class="body"><span class="t">' + esc(p.text) + '</span></div><span class="count">saving</span></div>'; });
+      h += '</div>';
+    }
+    if (!rows.length && !pend.length) return h + '<div class="empty">' + (kind === 'food' ? 'No food on the list. Add something above.' : 'Nothing to buy. Add something above, or give any item a store (tap it, then pick a store) and it shows up here.') + '</div>';
+    var groups = {}, order = stores.slice();
     rows.forEach(function (r) { if (order.indexOf(r.it.store) < 0) order.push(r.it.store); (groups[r.it.store] = groups[r.it.store] || []).push(r); });
     order.forEach(function (name) {
       var g = groups[name]; if (!g) return;
       var open = g.filter(function (r) { return !r.it.done; }), got = g.filter(function (r) { return r.it.done; });
       h += '<div class="store-head"><h2>' + esc(name) + '</h2><span class="count">' + open.length + ' to buy</span></div><div class="sec">';
       var line = function (r) {
-        return '<div class="shoprow' + (r.it.done ? ' done' : '') + '" data-id="' + r.it.id + '"><input type="checkbox" data-act="toggle"' + (r.it.done ? ' checked' : '') + ' aria-label="Bought">' +
-          '<div class="body" data-act="open"><span class="t">' + esc(r.it.text) + '</span><div class="path">' + esc(r.where) + '</div></div></div>';
+        var ed = canEdit(r.it);
+        return '<div class="swrap">' + (ed ? '<button class="swdel" data-act="swipedel" data-swid="' + r.it.id + '" aria-label="Delete">' + TRASH + '</button>' : '') +
+          '<div class="shoprow' + (r.it.done ? ' done' : '') + '" data-id="' + r.it.id + '"><input type="checkbox" data-act="toggle"' + (r.it.done ? ' checked' : '') + ' aria-label="Bought">' +
+          '<div class="body" data-act="open"><span class="t">' + esc(r.it.text) + '</span><div class="path">' + esc(r.where) + '</div></div></div></div>';
       };
       open.forEach(function (r) { h += line(r); });
       if (!open.length) h += '<div class="shoprow"><span class="count">All bought</span></div>';
@@ -323,7 +372,8 @@
     h += '<div class="card"><h3>Put it on your Home Screen</h3><p>On iPhone, open this page in Safari, tap the Share button, then Add to Home Screen. It opens like a real app.</p></div>';
     h += '<div class="card"><h3>Reminders to your phone</h3><p>Coming in the next version. On iPhone they only work from the Home Screen app.</p></div>';
     if (isParent()) {
-      h += '<div class="card"><h3>Stores</h3><p>The stores you can tag items with, separated by commas.</p><div class="addrow"><input type="text" data-draft="stores" value="' + esc(S.data.stores.join(', ')) + '" style="flex:1"><button class="pri" data-act="savestores">Save</button></div></div>';
+      h += '<div class="card"><h3>Other stores</h3><p>Stores for the Other shopping list, separated by commas.</p><div class="addrow"><input type="text" data-draft="stores" value="' + esc(S.data.stores.join(', ')) + '" style="flex:1"><button class="pri" data-act="savestores" data-kind="">Save</button></div></div>';
+      h += '<div class="card"><h3>Food stores</h3><p>Stores for the Food shopping list, separated by commas.</p><div class="addrow"><input type="text" data-draft="stores-food" value="' + esc(S.data.stores_food.join(', ')) + '" style="flex:1"><button class="pri" data-act="savestores" data-kind="food">Save</button></div></div>';
       h += '<div class="card"><h3>Bring in my old list</h3><p>Paste the backup from the first version of the app. It replaces Personal, Work, and the Roman projects with what is in the backup.</p><textarea rows="4" data-draft="import" placeholder="Paste backup here"></textarea><div class="addrow"><button class="ghost" data-act="import">Bring it in</button></div></div>';
     }
     h += '<div class="card"><h3>Back up</h3><p>Copies everything you can see so you can save it in a note.</p><div class="addrow"><button class="ghost" data-act="backup">Copy a backup</button><button class="ghost" data-act="hidedone">' + (S.hideDone ? 'Show finished items' : 'Hide finished items') + '</button></div></div>';
@@ -339,13 +389,34 @@
     var it = f.it, sh = S.sheet, ed = canEdit(it);
     var h = '<div class="scrim" data-act="closesheet"></div><div class="sheet" role="dialog" aria-label="Item details">';
     h += '<label>What</label><input type="text" data-sheet="text" value="' + esc(sh.text) + '"' + (ed ? '' : ' disabled') + '>';
-    h += '<label>Store</label><select data-sheet="store"' + (ed ? '' : ' disabled') + '>' + options(S.data.stores, sh.store, 'No store') + '</select>';
+    h += '<label>Shopping list</label><div class="seg two">' +
+      [['', 'Other'], ['food', 'Food']].map(function (p) { return '<button class="' + ((sh.shop || '') === p[0] ? 'on' : '') + '" data-act="shopsel" data-v="' + p[0] + '"' + (ed ? '' : ' disabled') + '>' + p[1] + '</button>'; }).join('') + '</div>';
+    h += '<label>Store</label><select data-sheet="store"' + (ed ? '' : ' disabled') + '>' + options(storesFor(sh.shop), sh.store, 'No store') + '</select>';
     h += '<label>Priority</label><div class="seg">';
     [['high', 'High'], ['normal', 'Normal'], ['low', 'Low']].forEach(function (p) { h += '<button class="' + (sh.priority === p[0] ? 'on' : '') + '" data-act="pri" data-v="' + p[0] + '"' + (ed ? '' : ' disabled') + '>' + p[1] + '</button>'; });
     h += '</div><label>Due date</label><input type="date" data-sheet="due" value="' + esc(sh.due) + '"' + (ed ? '' : ' disabled') + '>';
     if (!f.parent && ed) {
       h += '<label>Add a sub item</label><div class="addrow"><input type="text" data-sheet="sub" value="' + esc(sh.sub || '') + '" placeholder="Sub item" style="flex:1"><button class="ghost" data-act="addsub">Add</button></div>';
     }
+    if (isParent()) {
+      if (!f.parent) {
+        h += '<label>Move to</label><select data-sheet="sec">';
+        S.data.lists.forEach(function (l) {
+          h += '<optgroup label="' + esc(l.name) + '">';
+          l.sections.forEach(function (s) { h += '<option value="' + s.id + '"' + (s.id === +sh.sec ? ' selected' : '') + '>' + esc(s.name) + '</option>'; });
+          h += '</optgroup>';
+        });
+        h += '</select>';
+      }
+      // Put under: only when the item has no sub items of its own, and only inside its own section.
+      if (f.parent || !f.it.kids.length) {
+        h += '<label>' + (f.parent ? 'Sub item of' : 'Put under') + '</label><select data-sheet="par">' + (f.parent ? '' : '<option value="">Nothing, keep it on its own</option>');
+        f.sec.items.forEach(function (p) { if (p.id !== it.id) h += '<option value="' + p.id + '"' + (+sh.par === p.id ? ' selected' : '') + '>' + esc(p.text) + '</option>'; });
+        if (f.parent) h = h.replace('<select data-sheet="par">', '<select data-sheet="par"><option value="">Make it a normal item</option>');
+        h += '</select>';
+      }
+    }
+    if (ed) h += '<div class="seg two" style="margin-top:12px"><button data-act="sheettop">Move to top</button><button data-act="sheetbottom">Send to bottom</button></div>';
     h += '<div class="btns">' + (ed ? '<button class="ghost danger" data-act="deleteitem">Delete</button>' : '') +
       '<button class="ghost" data-act="closesheet">' + (ed ? 'Cancel' : 'Close') + '</button>' + (ed ? '<button class="pri" data-act="savesheet">Save</button>' : '') + '</div></div>';
     return h;
@@ -367,14 +438,17 @@
       var views = { home: homeView, lists: listsView, chores: choresView, shop: shopView, settings: settingsView };
       var body = (views[S.view] || homeView)();
       var tab = function (key, label) { var bn = badgeFor(key); return '<button class="' + (S.view === key ? 'on' : '') + '" data-act="tab" data-v="' + key + '"><span class="ico">' + ICONS[key] + (bn ? '<i class="badge' + (key === 'chores' ? ' red' : '') + '">' + (bn > 99 ? '99+' : bn) + '</i>' : '') + '</span><span>' + label + '</span></button>'; };
-      app.innerHTML = '<div class="shell"><nav class="tabs">' + tab('home', 'Home') + tab('lists', 'Lists') + tab('chores', 'Chores') + tab('shop', 'Shopping') + tab('settings', 'Settings') + '</nav><main class="main">' + body + '</main></div>' +
+      var tabs = S.me.role === 'kid'
+        ? tab('chores', 'Chores') + tab('lists', 'Lists') + tab('shop', 'Shopping') + tab('home', 'Home') + tab('settings', 'Settings')
+        : tab('home', 'Home') + tab('lists', 'Lists') + tab('chores', 'Chores') + tab('shop', 'Shopping') + tab('settings', 'Settings');
+      app.innerHTML = '<div class="shell"><nav class="tabs">' + tabs + '</nav><main class="main">' + body + '</main></div>' +
         sheetHtml() + (S.toast ? '<div class="toast"><span>' + esc(S.toast.msg) + '</span>' + (S.toast.undo ? '<button data-act="undo">Undo</button>' : '') + '</div>' : '');
     }
     app.querySelectorAll('[data-draft]').forEach(function (el) {
       var k = el.getAttribute('data-draft');
       if (S.drafts[k] !== undefined) el.value = S.drafts[k];
     });
-    S.pop = null;
+    S.pop = null; openRow = null;
   }
 
   var toastTimer = null;
@@ -385,6 +459,49 @@
     render();
   }
   function fail(e) { if (e && e.message !== 'signed out') toast(e.message || 'Something went wrong.'); }
+
+  // ---------- a little tap feel ----------
+  // Android phones buzz. On iPhone (iOS 17.4 and newer) flipping a hidden switch gives a small tick.
+  var hapticEl = null;
+  function tickOnce() {
+    try {
+      if (navigator.vibrate && !/iPhone|iPad/.test(navigator.userAgent)) { navigator.vibrate(12); return; }
+      if (!hapticEl) {
+        hapticEl = document.createElement('label');
+        hapticEl.setAttribute('aria-hidden', 'true');
+        hapticEl.style.cssText = 'position:fixed;left:-100px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+        var inp = document.createElement('input'); inp.type = 'checkbox'; inp.setAttribute('switch', '');
+        hapticEl.appendChild(inp); document.body.appendChild(hapticEl);
+      }
+      hapticEl.click();
+    } catch (e) {}
+  }
+  function tick() { tickOnce(); }
+  function firm() { tickOnce(); setTimeout(tickOnce, 70); }
+
+  // Take an item out of the screen's copy right away, before the server answers.
+  function removeLocal(id) {
+    S.data.lists.forEach(function (l) { l.sections.forEach(function (s) {
+      s.items = s.items.filter(function (it) { return it.id !== id; });
+      s.items.forEach(function (it) { it.kids = it.kids.filter(function (k) { return k.id !== id; }); });
+    }); });
+  }
+  function moveItem(id, body) {
+    api('POST', '/api/items/' + id + '/move', body).then(function () { return loadState(); }).catch(function (e) { fail(e); loadState(); });
+  }
+  function reorderLocal(id, before) {
+    var f = findItem(id); if (!f) return;
+    var arr = f.parent ? f.parent.kids : f.sec.items, i = arr.indexOf(f.it);
+    arr.splice(i, 1);
+    var at = -1; arr.forEach(function (x, n) { if (x.id === before) at = n; });
+    if (at < 0) arr.push(f.it); else arr.splice(at, 0, f.it);
+  }
+  function deleteItem(id) {
+    firm(); removeLocal(id); S.raw = ''; render();
+    api('DELETE', '/api/items/' + id).then(function () { return loadState(); }).then(function () {
+      toast('Deleted', function () { api('PATCH', '/api/items/' + id, { deleted: false }).then(function () { S.raw = ''; return loadState(); }).catch(fail); });
+    }).catch(function (e) { fail(e); loadState(); });
+  }
   function clearDrafts(prefix) { Object.keys(S.drafts).forEach(function (k) { if (k.indexOf(prefix) === 0) delete S.drafts[k]; }); }
 
   // ---------- actions ----------
@@ -431,7 +548,7 @@
       var pin = S.drafts['login-pin'] || '';
       if (!S.loginUser) { S.err = 'Pick who you are first.'; return render(); }
       api('POST', '/api/login', { user: S.loginUser, pin: pin }).then(function (j) {
-        S.me = j.user; delete S.drafts['login-pin']; S.err = ''; S.raw = '';
+        S.me = j.user; S.view = firstView(); delete S.drafts['login-pin']; S.err = ''; S.raw = '';
         return loadState();
       }).catch(function (e) { S.err = e.message; delete S.drafts['login-pin']; render(); });
     },
@@ -445,13 +562,18 @@
     toggle: function (b) { var id = +b.closest('[data-id]').dataset.id; toggle(id, b.checked); },
     open: function (b) {
       var id = +b.closest('[data-id]').dataset.id, f = findItem(id); if (!f) return;
-      S.sheet = { id: id, text: f.it.text, store: f.it.store, priority: f.it.priority, due: f.it.due, sub: '' }; render();
+      S.sheet = { id: id, text: f.it.text, store: f.it.store, shop: f.it.shop || '', priority: f.it.priority, due: f.it.due, sub: '', sec: f.sec.id, par: f.parent ? f.parent.id : '' }; render();
     },
     closesheet: function () { S.sheet = null; render(); },
     pri: function (b) { S.sheet.priority = b.dataset.v; render(); },
     savesheet: function () {
       var sh = S.sheet, f = findItem(sh.id);
-      var body = { text: sh.text, store: sh.store, priority: sh.priority, due: sh.due };
+      var body = { text: sh.text, store: sh.store, shop: sh.shop || '', priority: sh.priority, due: sh.due };
+      if (isParent() && f) {
+        var curPar = f.parent ? f.parent.id : '';
+        if (!f.parent && +sh.sec && +sh.sec !== f.sec.id) body.section_id = +sh.sec;
+        else if (String(sh.par || '') !== String(curPar)) body.parent_id = sh.par ? +sh.par : null;
+      }
       S.sheet = null; S.raw = '';
       api('PATCH', '/api/items/' + sh.id, body).then(function () { return loadState(); }).catch(function (e) { fail(e); loadState(); });
     },
@@ -459,23 +581,47 @@
       var sh = S.sheet, f = findItem(sh.id), text = (sh.sub || '').trim(); if (!text) return;
       api('POST', '/api/items', { section_id: f.sec.id, parent_id: sh.id, text: text }).then(function () { sh.sub = ''; S.raw = ''; return loadState(); }).then(function () { toast('Sub item added'); }).catch(fail);
     },
-    deleteitem: function () {
-      var id = S.sheet.id; S.sheet = null; S.raw = '';
-      api('DELETE', '/api/items/' + id).then(function () { return loadState(); }).then(function () {
-        toast('Deleted', function () { api('PATCH', '/api/items/' + id, { deleted: false }).then(function () { S.raw = ''; return loadState(); }).catch(fail); });
-      }).catch(fail);
+    deleteitem: function () { var id = S.sheet.id; S.sheet = null; deleteItem(id); },
+    swipedel: function (b) { deleteItem(+b.dataset.swid); },
+    shopsel: function (b) { S.sheet.shop = b.dataset.v; S.sheet.store = ''; render(); },
+    sheettop: function () { var id = S.sheet.id; S.sheet = null; S.raw = ''; moveItem(id, { to: 'top' }); },
+    sheetbottom: function () { var id = S.sheet.id; S.sheet = null; S.raw = ''; moveItem(id, {}); },
+    flag: function (b) {
+      var id = +b.closest('[data-id]').dataset.id, f = findItem(id); if (!f) return;
+      var next = { normal: 'high', high: 'low', low: 'normal' }[f.it.priority || 'normal'];
+      f.it.priority = next; S.raw = ''; render();
+      api('PATCH', '/api/items/' + id, { priority: next }).then(function () { return loadState(true); }).catch(function (e) { fail(e); loadState(); });
     },
+    shoptab: function (b) { S.shopTab = b.dataset.v; store('todo-shop', S.shopTab); delete S.drafts['shop-store']; render(); },
     add: function (b) {
       var sec = b.closest('[data-sec]'), sid = +sec.dataset.sec;
-      var text = (S.drafts['add-' + sid] || '').trim(); if (!text) return;
-      api('POST', '/api/items', { section_id: sid, text: text, store: S.drafts['st-' + sid] || '', priority: S.drafts['pr-' + sid] || 'normal' })
-        .then(function () { clearDrafts('add-' + sid); clearDrafts('st-' + sid); clearDrafts('pr-' + sid); S.raw = ''; return loadState(); }).catch(fail);
+      var text = (S.drafts['add-' + sid] || '').trim(); if (!text || S.adding) return;
+      var st = S.drafts['st-' + sid] || '', pr = S.drafts['pr-' + sid] || 'normal', section = null;
+      S.data.lists.forEach(function (l) { l.sections.forEach(function (x) { if (x.id === sid) section = x; }); });
+      // Show it right away, dimmed, and let the server catch up.
+      var tmp = { id: 'tmp' + Date.now(), text: text, done: false, store: st, shop: '', priority: pr, due: '', created_by: S.me.id, kids: [], saving: true };
+      if (section) section.items.push(tmp);
+      clearDrafts('add-' + sid); clearDrafts('st-' + sid); clearDrafts('pr-' + sid);
+      S.adding = true; S.raw = ''; tick(); render();
+      api('POST', '/api/items', { section_id: sid, text: text, store: st, priority: pr })
+        .then(function () { return loadState(); })
+        .catch(function (e) {
+          if (section) section.items = section.items.filter(function (x) { return x !== tmp; });
+          S.drafts['add-' + sid] = text; render(); fail(e);
+        })
+        .then(function () { S.adding = false; });
     },
     shopadd: function () {
-      var text = (S.drafts['shop-text'] || '').trim(); if (!text) return;
+      var text = (S.drafts['shop-text'] || '').trim(); if (!text || S.adding) return;
+      var kind = S.shopTab === 'food' ? 'food' : 'other', stores = storesFor(kind);
       var lid = +(S.drafts['shop-list'] || (S.data.lists.filter(function (l) { return l.key === 'roman-doug'; })[0] || S.data.lists[0]).id);
-      api('POST', '/api/items', { list_id: lid, shopping: true, text: text, store: S.drafts['shop-store'] !== undefined ? S.drafts['shop-store'] : S.data.stores[0] })
-        .then(function () { delete S.drafts['shop-text']; S.raw = ''; return loadState(); }).catch(fail);
+      var st = S.drafts['shop-store'] !== undefined ? S.drafts['shop-store'] : stores[0];
+      var pend = { text: text, shop: kind };
+      S.pendingShop.push(pend); delete S.drafts['shop-text']; S.adding = true; tick(); render();
+      api('POST', '/api/items', { list_id: lid, shopping: true, shop: kind === 'food' ? 'food' : '', text: text, store: st })
+        .then(function () { S.raw = ''; return loadState(); })
+        .catch(function (e) { S.drafts['shop-text'] = text; fail(e); })
+        .then(function () { S.pendingShop = S.pendingShop.filter(function (x) { return x !== pend; }); S.adding = false; render(); });
     },
     bulk: function (b) {
       var pane = b.closest('[data-list]'), lid = pane.dataset.list;
@@ -496,9 +642,10 @@
       api('POST', '/api/pin', { old: S.drafts['pin-old'] || '', new: S.drafts['pin-new'] || '' })
         .then(function () { clearDrafts('pin-'); toast('PIN changed'); }).catch(fail);
     },
-    savestores: function () {
-      var list = (S.drafts['stores'] !== undefined ? S.drafts['stores'] : S.data.stores.join(', ')).split(',');
-      api('PATCH', '/api/stores', { stores: list }).then(function () { clearDrafts('stores'); S.raw = ''; return loadState(); }).then(function () { toast('Stores saved'); }).catch(fail);
+    savestores: function (b) {
+      var food = b && b.dataset.kind === 'food', key = food ? 'stores-food' : 'stores';
+      var list = (S.drafts[key] !== undefined ? S.drafts[key] : storesFor(food ? 'food' : 'other').join(', ')).split(',');
+      api('PATCH', '/api/stores', { stores: list, kind: food ? 'food' : '' }).then(function () { delete S.drafts[key]; S.raw = ''; return loadState(); }).then(function () { toast('Stores saved'); }).catch(fail);
     },
     import: function () {
       var raw = S.drafts['import'] || '', state;
@@ -515,9 +662,101 @@
     undo: function () { var u = S.toast && S.toast.undo; S.toast = null; if (u) u(); else render(); },
   };
 
+
+  // ---------- swipe left to delete, and the grip to slide items ----------
+  var sw = null, openRow = null, drag = null;
+  function rowOf(wrap) { return wrap.querySelector(':scope > .item, :scope > .kid, :scope > .shoprow'); }
+  function closeOpen() { if (openRow) { openRow.style.transform = ''; if (openRow.parentNode) openRow.parentNode.classList.remove('open'); openRow = null; } }
+
+  app.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) { sw = null; return; }
+    var t = e.target, wrap = t.closest && t.closest('.swrap');
+    if (t.closest && t.closest('.swdel')) { sw = null; return; }
+    if (!wrap || !wrap.querySelector(':scope > .swdel') || t.closest('.grip, input, select, textarea, .flag')) { sw = null; return; }
+    var row = rowOf(wrap); if (!row) { sw = null; return; }
+    sw = { row: row, wrap: wrap, x: e.touches[0].clientX, y: e.touches[0].clientY, mode: '', base: row === openRow ? -80 : 0, cur: row === openRow ? -80 : 0 };
+  }, { passive: true });
+  app.addEventListener('touchmove', function (e) {
+    if (!sw) return;
+    var dx = e.touches[0].clientX - sw.x, dy = e.touches[0].clientY - sw.y;
+    if (!sw.mode) {
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5) { sw.mode = 'h'; sw.row.style.transition = 'none'; if (openRow && openRow !== sw.row) closeOpen(); }
+      else if (Math.abs(dy) > 8) sw.mode = 'v';
+    }
+    if (sw.mode === 'h') { sw.cur = Math.max(-96, Math.min(0, sw.base + dx)); sw.row.style.transform = 'translateX(' + sw.cur + 'px)'; }
+  }, { passive: true });
+  function swipeEnd() {
+    if (!sw) return;
+    var s = sw; sw = null;
+    if (s.mode !== 'h') return;
+    s.row.style.transition = '';
+    if (s.cur < -40) {
+      if (openRow && openRow !== s.row) closeOpen();
+      s.row.style.transform = 'translateX(-80px)'; s.wrap.classList.add('open');
+      if (openRow !== s.row) tick();
+      openRow = s.row;
+    } else {
+      s.row.style.transform = ''; s.wrap.classList.remove('open');
+      if (openRow === s.row) openRow = null;
+    }
+  }
+  window.addEventListener('scroll', function () { if (openRow && !sw) closeOpen(); }, { passive: true });
+  app.addEventListener('touchend', swipeEnd);
+  app.addEventListener('touchcancel', swipeEnd);
+  // While a row is slid open, a tap anywhere else only closes it.
+  app.addEventListener('click', function (e) {
+    if (!openRow || (e.target.closest && e.target.closest('.swdel'))) return;
+    closeOpen(); e.stopPropagation(); e.preventDefault();
+  }, true);
+
+  app.addEventListener('pointerdown', function (e) {
+    var g = e.target.closest && e.target.closest('.grip'); if (!g) return;
+    var wrap = g.closest('.swrap'), row = wrap && rowOf(wrap), id = row && +row.dataset.id; if (!id) return;
+    var sec = wrap.closest('.sec'), par = wrap.getAttribute('data-par');
+    var cands = [].slice.call(sec.querySelectorAll('.swrap[data-par="' + par + '"]')).filter(function (w) { return w !== wrap && w.querySelector('[data-id]'); });
+    e.preventDefault();
+    try { g.setPointerCapture(e.pointerId); } catch (x) {}
+    closeOpen();
+    drag = { id: id, wrap: wrap, row: row, par: par, cands: cands, y0: e.clientY, before: null, moved: false, hidden: [] };
+    if (par === '0') {   // fold its sub items away while it travels
+      var n = wrap.nextElementSibling;
+      while (n && n.getAttribute('data-par') === String(id)) { n.style.display = 'none'; drag.hidden.push(n); n = n.nextElementSibling; }
+    }
+    row.classList.add('dragging'); wrap.classList.add('dragwrap'); tick();
+  });
+  app.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var dy = e.clientY - drag.y0;
+    if (!drag.moved && Math.abs(dy) < 4) return;
+    drag.moved = true;
+    drag.row.style.transform = 'translateY(' + dy + 'px)';
+    var before = null;
+    drag.cands.forEach(function (w) { w.classList.remove('dropbefore', 'dropend'); });
+    for (var i = 0; i < drag.cands.length; i++) {
+      var r = drag.cands[i].getBoundingClientRect();
+      if (e.clientY < r.top + r.height / 2) { before = drag.cands[i]; break; }
+    }
+    if (before) before.classList.add('dropbefore');
+    else if (drag.cands.length) drag.cands[drag.cands.length - 1].classList.add('dropend');
+    drag.before = before ? +before.querySelector('[data-id]').dataset.id : null;
+  });
+  function endDrag(cancel) {
+    if (!drag) return;
+    var d = drag; drag = null;
+    d.row.style.transform = ''; d.row.classList.remove('dragging'); d.wrap.classList.remove('dragwrap');
+    d.hidden.forEach(function (n) { n.style.display = ''; });
+    d.cands.forEach(function (w) { w.classList.remove('dropbefore', 'dropend'); });
+    if (cancel || !d.moved) return;
+    reorderLocal(d.id, d.before); S.raw = ''; tick(); render();
+    api('POST', '/api/items/' + d.id + '/move', d.before ? { before: d.before } : {}).then(function () { return loadState(true); }).catch(function (e) { fail(e); loadState(); });
+  }
+  app.addEventListener('pointerup', function () { endDrag(false); });
+  app.addEventListener('pointercancel', function () { endDrag(true); });
+
   app.addEventListener('click', function (e) {
     var b = e.target.closest('[data-act]'); if (!b || !app.contains(b)) return;
     // Taps on text open the item, but a tap on a link-like control should not also toggle.
+    if ((b.tagName === 'BUTTON' || b.type === 'checkbox') && !/^(add|shopadd|swipedel|deleteitem|closesheet|refresh|theme)$/.test(b.dataset.act)) tick();
     var fn = actions[b.dataset.act]; if (fn) fn(b, e);
   });
   app.addEventListener('input', function (e) {
@@ -527,6 +766,11 @@
     if (f && S.sheet) S.sheet[f] = e.target.value;
   });
   app.addEventListener('change', function (e) {
+    if (e.target.matches && e.target.matches('[data-movesec]')) {
+      var to = +e.target.value, sid = +e.target.closest('[data-sec]').dataset.sec;
+      if (to) api('PATCH', '/api/sections/' + sid, { list_id: to }).then(function () { S.raw = ''; return loadState(); }).then(function () { tick(); toast('Section moved'); }).catch(fail);
+      return;
+    }
     var d = e.target.getAttribute && e.target.getAttribute('data-draft');
     if (d) S.drafts[d] = e.target.value;
     var f = e.target.getAttribute && e.target.getAttribute('data-sheet');
@@ -568,14 +812,14 @@
   }
 
   function start() {
-    S.hideDone = store('todo-hide') === '1';
+    S.hideDone = store('todo-hide') === '1'; S.shopTab = store('todo-shop') === 'food' ? 'food' : 'other';
     var th = store('todo-theme'); if (th) document.documentElement.setAttribute('data-theme', th);
     S.loginUser = store('todo-last-user') || '';
     S.me = null; S.data = null; S.raw = ''; S.view = 'home'; S.sheet = null;
     api('GET', '/api/users').then(function (u) {
       S.users = u.users;
       if (!S.users.some(function (x) { return x.id === S.loginUser; })) S.loginUser = '';
-      return api('GET', '/api/me').then(function (m) { S.me = m.user; return loadState(); }).catch(function () { render(); });
+      return api('GET', '/api/me').then(function (m) { S.me = m.user; S.view = firstView(); return loadState(); }).catch(function () { render(); });
     }).catch(function () { app.innerHTML = '<div class="login"><h1>To Do</h1><div class="err">Could not reach the server. Check your connection and try again.</div></div>'; });
     checkUpdate();
   }
