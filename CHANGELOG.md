@@ -1,5 +1,11 @@
 # Changes
 
+## 1.3.0 (Oct 20, 2026)
+
+- View as Roman: a button in Doug's Settings shows the app exactly as Roman sees it. An orange bar stays on top with Back to Doug. It is look only, so nothing can be changed as Roman.
+- Reset Roman's PIN from Doug's Settings. It also clears a lockout.
+- The garage car is removed for now.
+
 ## 1.2.0 (Oct 20, 2026)
 
 - Roman's Wish List, shared by Doug and Roman, with Birthday, Christmas and Anytime ideas sections. Any item can have a link. It shows as an Open link chip.

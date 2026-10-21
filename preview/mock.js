@@ -89,12 +89,21 @@
       setTimeout(function () { ok(route()); }, 20);
     });
     function route() {
+      var va = o.headers && o.headers['X-View-As'], realMe = me;
+      if (va && me && me.role === 'parent' && p !== '/api/pin/reset') {
+        if (m !== 'GET') return res(403, { error: 'You are only looking as Roman. Go back to your own view to change things.' });
+        me = CFG.users.filter(function (u) { return u.id === va; })[0] || me;
+      }
+      try { return route2(); } finally { me = realMe; }
+    }
+    function route2() {
       if (p === '/api/users') return res(200, { users: CFG.users.map(function (u) { return { id: u.id, name: u.name }; }) });
       if (p === '/api/me') return me ? res(200, { user: me }) : res(401, { error: 'Not signed in.' });
       if (p === '/api/login') { me = CFG.users.filter(function (u) { return u.id === b.user; })[0]; return me ? res(200, { user: me }) : res(401, { error: 'Wrong PIN.' }); }
       if (p === '/api/logout') { me = null; return res(200, {}); }
       if (!me) return res(401, { error: 'Not signed in.' });
-      if (p === '/api/state') { var st = state(); var dm = /[?&]d=([\d-]+)/.exec(String(url)); st.chores = choreState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.people = CFG.users.map(function (u) { return { id: u.id, name: u.name }; }); st.week = weekState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.ideas_custom = kid() ? [] : customIdeas.slice(); return res(200, st); }
+      if (p === '/api/state') { var st = state(); var dm = /[?&]d=([\d-]+)/.exec(String(url)); st.chores = choreState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.people = CFG.users.map(function (u) { return { id: u.id, name: u.name, role: u.role }; }); st.week = weekState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.ideas_custom = kid() ? [] : customIdeas.slice(); return res(200, st); }
+      if (p === '/api/pin/reset' && m === 'POST') { if (kid()) return res(403, { error: 'Only a parent can reset a PIN.' }); return /^\d{4,8}$/.test(String(b.pin || '')) ? res(200, { ok: true }) : res(400, { error: 'Use 4 to 8 digits for the new PIN.' }); }
       if (p === '/api/week' && m === 'PATCH') { if (kid()) return res(403, { error: 'Only Dad can set the weekly goal.' }); var gg = goals[b.week] || (goals[b.week] = { target: 80, reward: '', closed: false }); if ('target' in b) gg.target = +b.target; if ('reward' in b) gg.reward = String(b.reward).slice(0, 120); if ('closed' in b) gg.closed = !!b.closed; return res(200, { ok: true }); }
       if (p === '/api/ideas' && m === 'POST') { if (kid()) return res(403, { error: 'Only Dad can add ideas for now.' }); customIdeas.push(String(b.text).slice(0, 120)); return res(200, { ok: true }); }
       var cm = /^\/api\/chores(?:\/(\d+))?(?:\/(done))?$/.exec(p);

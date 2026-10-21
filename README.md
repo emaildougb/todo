@@ -16,7 +16,8 @@ A shared checklist for Doug and Roman. Each person signs in with their own PIN o
 - Any item with a store shows up on the Shopping tab, in the Food list or the Other list, grouped by store.
 - Doug can move items and whole sections between lists, group items under a parent, slide items up and down, and swipe a row left to delete.
 - Roman's week: Doug sets a percent goal and a reward. The card on Home and Chores tracks it Sunday to Saturday, and Doug taps Paid out. A bank of weekly ideas helps pick rewards.
-- Home also has a Christmas and birthday countdown and a garage car with flip up headlights.
+- Home also has a Christmas and birthday countdown.
+- Doug can tap View as Roman in Settings to see exactly what Roman sees (look only), and can reset Roman's PIN there.
 - Roman's phone opens on Chores. He sees Roman and Dad and Roman's To do.
 
 ## Files

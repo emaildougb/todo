@@ -202,7 +202,7 @@ h1{font-size:30px}
 .letdad{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:14px}
 .movesel{font-size:13px;padding:4px 6px;max-width:112px}
 
-/* ---- 1.2.0: week goal, ideas, countdown, wish links, garage ---- */
+/* ---- 1.2.0: week goal, ideas, countdown, wish links ---- */
 .linkchip{color:var(--accent);text-decoration:none;border:1px solid var(--accent)}
 .weekcard{background:var(--card);border:1.5px solid var(--accent);border-radius:14px;padding:12px 14px;margin:8px 0 12px}
 .weekcard.earned{background:var(--soft)}
@@ -239,23 +239,5 @@ h1{font-size:30px}
 .cdn{font-family:var(--serif);font-size:24px;font-weight:700;color:var(--accent)}
 .cdl{font-size:14px}
 .cdx{font-size:12px;color:var(--muted);min-height:16px}
-.garage{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 12px}
-.garage .gh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
-.garage .gh .name{font-family:var(--serif);font-size:18px;font-weight:700}
-.garage .gh .num{font-size:13px;color:var(--muted)}
-.carbtn{display:block;width:100%;border:0;border-radius:12px;padding:10px 6px 4px;cursor:pointer;background:var(--soft);transition:background .5s;color:var(--ink)}
-.carbtn .car{width:100%;height:auto;max-height:190px;display:block}
-.garage.up .carbtn{background:#1b2433}
-.lbtn{width:100%;margin-top:10px;padding:12px;font-weight:700}
-.lbtn .l-up{display:none}
-.garage.up .lbtn .l-up{display:inline}
-.garage.up .lbtn .l-down{display:none}
-.car .lamp{transform-origin:262px 66px;transition:transform .5s cubic-bezier(.3,1.5,.5,1)}
-.garage.up .car .lamp{transform:rotate(-62deg)}
-.car .lens{opacity:0;transition:opacity .25s .2s}
-.garage.up .car .lens{opacity:1}
-.car .beam{opacity:0;transition:opacity .4s .25s}
-.garage.up .car .beam{opacity:.8}
-@media (prefers-reduced-motion:reduce){
-  .car .lamp,.car .lens,.car .beam,.carbtn{transition:none}
-}
+.vbar{position:sticky;top:0;z-index:20;background:#b8641c;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:600;font-size:14px;border-radius:0 0 12px 12px}
+.vbar button{background:#fff;color:#7a3f0d;border:0;border-radius:99px;padding:6px 12px;font-weight:700;cursor:pointer}

@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.2.0';
+  var APP_VER = '1.3.0';
   var NEWS = [
+    { v: '1.3.0', d: 'Oct 20, 2026', notes: ['Dad can tap View as Roman to see the app the way Roman sees it (look only), and can reset Roman\u2019s PIN from Settings. The garage car is gone for now.'] },
     { v: '1.2.0', d: 'Oct 20, 2026', notes: ["Roman's Wish List with links, a countdown to Christmas and his birthday, Roman's week with a percent goal and reward, a bank of weekly idea suggestions, and a garage with flip up headlights."] },
     { v: '1.1.0', d: 'Oct 20, 2026', notes: ['Swipe left to delete, slide items up and down with the grip, move items and whole sections between lists, group items under a parent, Food and Other shopping lists, stacked list buttons, and an instant Add.'] },
     { v: '1.0.0', d: 'Oct 18, 2026', notes: ['First shared version: Personal, Work, and Roman lists, chores for Roman, shopping by store, PIN sign in, and one list on every phone.'] },
@@ -12,7 +13,7 @@
   var S = {
     me: null, users: [], data: null, raw: '', view: 'home', listKey: null, sheet: null,
     toast: null, drafts: {}, choreDays: [], editChore: 0, hideDone: false, newer: false, pop: null, loginUser: '', err: '', busy: false,
-    adding: false, pendingShop: [], shopTab: 'other', lamps: false,
+    adding: false, pendingShop: [], shopTab: 'other', viewAs: '', realMe: null,
   };
   var app = document.getElementById('app');
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -26,7 +27,7 @@
   function api(method, path, body) {
     return fetch(path, {
       method: method,
-      headers: body ? { 'Content-Type': 'application/json' } : {},
+      headers: Object.assign(body ? { 'Content-Type': 'application/json' } : {}, S.viewAs ? { 'X-View-As': S.viewAs } : {}),
       body: body ? JSON.stringify(body) : undefined,
       credentials: 'same-origin',
       cache: 'no-store',
@@ -233,7 +234,7 @@
     var lists = S.data.lists, open = 0;
     lists.forEach(function (l) { var s = stats(l); open += s[1] - s[0]; });
     var shop = shopRows().filter(function (r) { return !r.it.done; }).length;
-    var h = top(greeting() + ', ' + S.me.name, dueLine(open)) + weekCardHtml() + ideaLineHtml() + countdownHtml() + (S.me.role === 'kid' ? garageHtml() : '');
+    var h = top(greeting() + ', ' + S.me.name, dueLine(open)) + weekCardHtml() + ideaLineHtml() + countdownHtml();
     lists.forEach(function (l) {
       var s = stats(l), pct = s[1] ? Math.round(s[0] / s[1] * 100) : 0, next = upNext(l), mine = l.key === 'personal' || l.key === 'work';
       h += '<div class="homecard' + (mine ? ' big' : '') + '"><button class="homehead" data-act="gotolist" data-key="' + esc(l.key) + '"><span class="name">' + esc(l.name) + '</span>' +
@@ -257,14 +258,13 @@
       h = mine ? h.replace('</div><div class="homecard', '</div>' + chtml + '<div class="homecard') : h;
       if (!mine) h += chtml;
     }
-    if (S.me.role !== 'kid') h += garageHtml();
     h += '<button class="tile shop wide" data-act="gotoshop"><span class="name">Shopping</span><span class="num">' + shop + ' to buy</span></button>';
     if (!lists.length) h += '<div class="empty">No lists to show yet.</div>';
     return h;
   }
 
 
-  // ---------- the week goal, ideas, countdown, garage ----------
+  // ---------- the week goal, ideas, countdown ----------
   // [idea, seasons (w winter, p spring, u summer, f fall, a any), cost (0 free, 1 small, 2 bigger)]
   var IDEAS = [
     ['Pancake breakfast, Roman picks the toppings', 'a', 1], ['Movie night with popcorn, he picks the movie', 'a', 1],
@@ -377,25 +377,6 @@
       one(bd, 'until ' + (kidView ? 'your' : nm + '\u2019s') + ' birthday', 'Turns ' + (bd.year - 2014), wishCount('birthday')) + '</div>';
   }
 
-  var CAR_SVG = '<svg class="car" viewBox="0 0 320 130" role="img" aria-label="A sports car with flip up headlights">' +
-    '<defs><linearGradient id="beamg" x1="0" x2="1"><stop offset="0" stop-color="#fff3b0" stop-opacity=".95"/><stop offset="1" stop-color="#fff3b0" stop-opacity="0"/></linearGradient></defs>' +
-    '<ellipse cx="160" cy="117" rx="140" ry="5" fill="#000" opacity=".12"/>' +
-    '<path d="M16 94 L16 84 Q16 80 24 78 L92 69 L130 52 Q134 50 140 50 L190 50 Q196 50 200 53 L236 64 L290 70 Q302 72 304 80 L304 94 Z" fill="#d94a3a"/>' +
-    '<path d="M104 68 L130 55 L158 55 L158 68 Z M166 55 L190 55 L212 68 L166 68 Z" fill="#cfe3ee" opacity=".92"/>' +
-    '<path d="M162 55 L162 88 M60 92 H258" stroke="#000" stroke-opacity=".25" stroke-width="1.4" fill="none"/>' +
-    '<rect x="14" y="79" width="6" height="5" rx="1" fill="#ff8a7a"/>' +
-    '<circle cx="82" cy="96" r="21" fill="#101010"/><circle cx="244" cy="96" r="21" fill="#101010"/>' +
-    '<circle cx="82" cy="96" r="17" fill="#262626"/><circle cx="244" cy="96" r="17" fill="#262626"/>' +
-    '<circle cx="82" cy="96" r="8" fill="#c9c9c9"/><circle cx="244" cy="96" r="8" fill="#c9c9c9"/>' +
-    '<polygon class="beam" points="275,56 320,32 320,86 275,62" fill="url(#beamg)"/>' +
-    '<g transform="rotate(7 262 66)"><g class="lamp"><rect x="262" y="65" width="27" height="5" rx="2" fill="#c63f31" stroke="#8f2a20" stroke-width=".7"/>' +
-    '<circle class="lens" cx="275" cy="70.5" r="4.5" fill="#fff3b0" stroke="#555" stroke-width=".8"/></g></g></svg>';
-  function garageHtml() {
-    return '<div class="garage' + (S.lamps ? ' up' : '') + '"><div class="gh"><span class="name">Garage</span><span class="num">Tap the car</span></div>' +
-      '<button class="carbtn" data-act="lamps" aria-label="Pop up the headlights">' + CAR_SVG + '</button>' +
-      '<button class="pri lbtn" data-act="lamps"><span class="l-down">Pop up!</span><span class="l-up">Lights down</span></button></div>';
-  }
-
   // ---------- chores ----------
   var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   function dayName(d) { return DAYS[new Date(d + 'T12:00:00').getDay()]; }
@@ -504,6 +485,11 @@
     h += '<div class="card"><h3>Account</h3><div class="addrow"><button class="ghost" data-act="signout">Sign out</button></div></div>';
     h += '<div class="card"><h3>Change my PIN</h3><p>Use 4 to 8 digits.</p><div class="addrow"><input type="password" inputmode="numeric" data-draft="pin-old" placeholder="Current PIN" autocomplete="off" style="flex:1">' +
       '<input type="password" inputmode="numeric" data-draft="pin-new" placeholder="New PIN" autocomplete="off" style="flex:1"><button class="pri" data-act="changepin">Save</button></div></div>';
+    if (isParent() && !S.viewAs) {
+      var kidp = (S.data.people || []).filter(function (x) { return x.role === 'kid'; })[0];
+      if (kidp) h += '<div class="card"><h3>' + esc(kidp.name) + '</h3><p>See the app exactly the way ' + esc(kidp.name) + ' sees it. You can look but not change anything while you are in there.</p><div class="addrow"><button class="ghost" data-act="viewas" data-id="' + esc(kidp.id) + '">View as ' + esc(kidp.name) + '</button></div>' +
+        '<p style="margin-top:14px">Reset his PIN (4 to 8 digits). This also clears any lockout.</p><div class="addrow"><input type="password" inputmode="numeric" data-draft="rst-pin" placeholder="New PIN for ' + esc(kidp.name) + '" autocomplete="off" style="flex:1"><button class="pri" data-act="resetpin" data-id="' + esc(kidp.id) + '">Reset PIN</button></div></div>';
+    }
     h += '<div class="card"><h3>Put it on your Home Screen</h3><p>On iPhone, open this page in Safari, tap the Share button, then Add to Home Screen. It opens like a real app.</p></div>';
     h += '<div class="card"><h3>Reminders to your phone</h3><p>Coming in the next version. On iPhone they only work from the Home Screen app.</p></div>';
     if (isParent()) {
@@ -577,7 +563,8 @@
       var tabs = S.me.role === 'kid'
         ? tab('chores', 'Chores') + tab('lists', 'Lists') + tab('shop', 'Shopping') + tab('home', 'Home') + tab('settings', 'Settings')
         : tab('home', 'Home') + tab('lists', 'Lists') + tab('chores', 'Chores') + tab('shop', 'Shopping') + tab('settings', 'Settings');
-      app.innerHTML = '<div class="shell"><nav class="tabs">' + tabs + '</nav><main class="main">' + body + '</main></div>' +
+      var vbar = S.viewAs ? '<div class="vbar"><span>Viewing as ' + esc(S.me.name) + '. Look only.</span><button data-act="viewback">Back to ' + esc(S.realMe.name) + '</button></div>' : '';
+      app.innerHTML = vbar + '<div class="shell"><nav class="tabs">' + tabs + '</nav><main class="main">' + body + '</main></div>' +
         sheetHtml() + (S.toast ? '<div class="toast"><span>' + esc(S.toast.msg) + '</span>' + (S.toast.undo ? '<button data-act="undo">Undo</button>' : '') + '</div>' : '');
     }
     app.querySelectorAll('[data-draft]').forEach(function (el) {
@@ -660,10 +647,19 @@
       var next = theme() === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next); store('todo-theme', next); render();
     },
-    lamps: function (b) {
-      var g = b.closest('.garage'); if (!g) return;
-      g.classList.toggle('up'); S.lamps = g.classList.contains('up');
-      if (S.lamps) setTimeout(tickOnce, 140);
+    viewas: function (b) {
+      var id = b.dataset.id, nm = ((S.data.people || []).filter(function (x) { return x.id === id; })[0] || {}).name || 'Roman';
+      S.realMe = S.me; S.viewAs = id; S.me = { id: id, name: nm, role: 'kid' }; S.view = 'chores'; S.sheet = null; S.raw = '';
+      loadState().then(function () { window.scrollTo(0, 0); }).catch(fail);
+    },
+    viewback: function () {
+      S.me = S.realMe; S.realMe = null; S.viewAs = ''; S.view = 'settings'; S.sheet = null; S.raw = '';
+      loadState().then(function () { window.scrollTo(0, 0); }).catch(fail);
+    },
+    resetpin: function (b) {
+      var pin = (S.drafts['rst-pin'] || '').trim();
+      if (!/^\d{4,8}$/.test(pin)) return toast('Use 4 to 8 digits.');
+      api('POST', '/api/pin/reset', { user: b.dataset.id, pin: pin }).then(function () { clearDrafts('rst-'); toast('PIN changed. They can sign in now.'); }).catch(fail);
     },
     idea: function () { S.drafts['wk-reward'] = nextIdea(); render(); },
     useidea: function () { S.drafts['wk-reward'] = weekIdea(); S.view = 'chores'; render(); window.scrollTo(0, 0); },

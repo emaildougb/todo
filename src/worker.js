@@ -193,6 +193,19 @@ async function changePin(env, user, request) {
   return json({ ok: true });
 }
 
+async function resetPin(env, user, request) {
+  if (!isParent(user)) return fail('Only a parent can reset a PIN.', 403);
+  const b = await request.json().catch(() => ({}));
+  const who = USERS.find((u) => u.id === b.user && u.role === 'kid');
+  if (!who) return fail('Pick whose PIN to reset.');
+  const next = String(b.pin || '');
+  if (!/^\d{4,8}$/.test(next)) return fail('Use 4 to 8 digits for the new PIN.');
+  const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
+  await env.DB.prepare('INSERT OR REPLACE INTO pins (user, salt, hash) VALUES (?,?,?)').bind(who.id, salt, await pbkdf2(next, salt)).run();
+  await env.DB.prepare('DELETE FROM attempts WHERE user=?').bind(who.id).run();
+  return json({ ok: true });
+}
+
 const pub = (u) => ({ id: u.id, name: u.name, role: u.role });
 const isParent = (u) => u.role === 'parent';
 const canSee = (u, listKey) => !!LISTS.find((l) => l.key === listKey && l.members.includes(u.id));
@@ -703,15 +716,28 @@ async function route(request, env, url) {
   if (name === 'login' && method === 'POST') return login(env, request);
   if (name === 'logout' && method === 'POST') return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie('', 0) });
 
-  const user = await userFromRequest(env, request);
+  let user = await userFromRequest(env, request);
   if (!user) return fail('Please sign in.', 401);
+
+  // Dad resets Roman's PIN. This also clears a lockout.
+  if (name === 'pin' && parts[2] === 'reset' && method === 'POST') return resetPin(env, user, request);
+
+  // Dad can look at the app exactly as Roman sees it. Reading only: nothing can be changed this way.
+  const viewAs = request.headers.get('X-View-As');
+  if (viewAs && isParent(user)) {
+    const k = USERS.find((u) => u.id === viewAs && u.role === 'kid');
+    if (k) {
+      if (method !== 'GET') return fail('You are only looking as ' + k.name + '. Go back to your own view to change things.', 403);
+      user = k;
+    }
+  }
 
   if (name === 'me' && method === 'GET') return json({ user: pub(user) });
   if (name === 'state' && method === 'GET') {
     const state = await buildState(env, user);
     const d = url.searchParams.get('d');
     state.chores = await choreState(env, user, DAY_RE.test(d || '') ? d : new Date().toISOString().slice(0, 10));
-    state.people = USERS.map((u) => ({ id: u.id, name: u.name }));
+    state.people = USERS.map((u) => ({ id: u.id, name: u.name, role: u.role }));
     state.week = await weekState(env, DAY_RE.test(d || '') ? d : new Date().toISOString().slice(0, 10));
     state.ideas_custom = isParent(user) ? await customIdeas(env) : [];
     return json(state);
