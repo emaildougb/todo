@@ -185,7 +185,8 @@ async function login(env, request) {
 
 async function changePin(env, user, request) {
   const b = await request.json().catch(() => ({}));
-  if (!(await checkPin(env, user.id, String(b.old || '')))) return fail('Your current PIN is not right.', 401);
+  // Someone already signed in can set a new PIN without the old one (the signed in session proves who they are).
+  if (!b.forgot && !(await checkPin(env, user.id, String(b.old || '')))) return fail('Your current PIN is not right.', 401);
   const next = String(b.new || '');
   if (!/^\d{4,8}$/.test(next)) return fail('Use 4 to 8 digits for the new PIN.');
   const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));

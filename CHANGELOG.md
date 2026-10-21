@@ -1,5 +1,9 @@
 # Changes
 
+## 1.3.1 (Oct 20, 2026)
+
+- Settings: I forgot my current PIN lets you set a new PIN while you are signed in, without the old one.
+
 ## 1.3.0 (Oct 20, 2026)
 
 - View as Roman: a button in Doug's Settings shows the app exactly as Roman sees it. An orange bar stays on top with Back to Doug. It is look only, so nothing can be changed as Roman.

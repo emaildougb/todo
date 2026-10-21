@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.3.0';
+  var APP_VER = '1.3.1';
   var NEWS = [
+    { v: '1.3.1', d: 'Oct 20, 2026', notes: ['Settings has an I forgot my current PIN option, so you can set a new PIN while signed in.'] },
     { v: '1.3.0', d: 'Oct 20, 2026', notes: ['Dad can tap View as Roman to see the app the way Roman sees it (look only), and can reset Roman\u2019s PIN from Settings. The garage car is gone for now.'] },
     { v: '1.2.0', d: 'Oct 20, 2026', notes: ["Roman's Wish List with links, a countdown to Christmas and his birthday, Roman's week with a percent goal and reward, a bank of weekly idea suggestions, and a garage with flip up headlights."] },
     { v: '1.1.0', d: 'Oct 20, 2026', notes: ['Swipe left to delete, slide items up and down with the grip, move items and whole sections between lists, group items under a parent, Food and Other shopping lists, stacked list buttons, and an instant Add.'] },
@@ -13,7 +14,7 @@
   var S = {
     me: null, users: [], data: null, raw: '', view: 'home', listKey: null, sheet: null,
     toast: null, drafts: {}, choreDays: [], editChore: 0, hideDone: false, newer: false, pop: null, loginUser: '', err: '', busy: false,
-    adding: false, pendingShop: [], shopTab: 'other', viewAs: '', realMe: null,
+    adding: false, pendingShop: [], shopTab: 'other', forgot: false, viewAs: '', realMe: null,
   };
   var app = document.getElementById('app');
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -483,8 +484,11 @@
   function settingsView() {
     var h = top('Settings', 'Signed in as ' + S.me.name);
     h += '<div class="card"><h3>Account</h3><div class="addrow"><button class="ghost" data-act="signout">Sign out</button></div></div>';
-    h += '<div class="card"><h3>Change my PIN</h3><p>Use 4 to 8 digits.</p><div class="addrow"><input type="password" inputmode="numeric" data-draft="pin-old" placeholder="Current PIN" autocomplete="off" style="flex:1">' +
-      '<input type="password" inputmode="numeric" data-draft="pin-new" placeholder="New PIN" autocomplete="off" style="flex:1"><button class="pri" data-act="changepin">Save</button></div></div>';
+    h += '<div class="card"><h3>Change my PIN</h3><p>Use 4 to 8 digits.</p><div class="addrow">' +
+      (S.forgot ? '' : '<input type="password" inputmode="numeric" data-draft="pin-old" placeholder="Current PIN" autocomplete="off" style="flex:1">') +
+      '<input type="password" inputmode="numeric" data-draft="pin-new" placeholder="New PIN" autocomplete="off" style="flex:1"><button class="pri" data-act="changepin">Save</button></div>' +
+      '<div class="addrow"><button class="ghost" data-act="forgotpin">' + (S.forgot ? 'I remember it after all' : 'I forgot my current PIN') + '</button></div>' +
+      (S.forgot ? '<p>You are signed in, so you can pick a new PIN without the old one.</p>' : '') + '</div>';
     if (isParent() && !S.viewAs) {
       var kidp = (S.data.people || []).filter(function (x) { return x.role === 'kid'; })[0];
       if (kidp) h += '<div class="card"><h3>' + esc(kidp.name) + '</h3><p>See the app exactly the way ' + esc(kidp.name) + ' sees it. You can look but not change anything while you are in there.</p><div class="addrow"><button class="ghost" data-act="viewas" data-id="' + esc(kidp.id) + '">View as ' + esc(kidp.name) + '</button></div>' +
@@ -794,9 +798,10 @@
       api('DELETE', '/api/sections/' + sid).then(function () { S.raw = ''; return loadState(); }).catch(fail);
     },
     changepin: function () {
-      api('POST', '/api/pin', { old: S.drafts['pin-old'] || '', new: S.drafts['pin-new'] || '' })
-        .then(function () { clearDrafts('pin-'); toast('PIN changed'); }).catch(fail);
+      api('POST', '/api/pin', { old: S.drafts['pin-old'] || '', new: S.drafts['pin-new'] || '', forgot: S.forgot })
+        .then(function () { clearDrafts('pin-'); S.forgot = false; toast('PIN changed'); }).catch(fail);
     },
+    forgotpin: function () { S.forgot = !S.forgot; delete S.drafts['pin-old']; render(); },
     savestores: function (b) {
       var food = b && b.dataset.kind === 'food', key = food ? 'stores-food' : 'stores';
       var list = (S.drafts[key] !== undefined ? S.drafts[key] : storesFor(food ? 'food' : 'other').join(', ')).split(',');
