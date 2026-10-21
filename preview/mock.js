@@ -4,7 +4,7 @@
   var CFG = window.__CFG, nid = 1, db = { lists: [], secs: [], items: [], stores: CFG.stores.slice(), food: CFG.foodStores.slice() };
   var me = null;
   function add(secId, parent, text, extra) {
-    var it = { id: nid++, sec: secId, parent: parent || 0, text: text, done: false, store: '', shop: '', priority: 'normal', due: '', by: 'doug', del: false };
+    var it = { id: nid++, sec: secId, parent: parent || 0, text: text, done: false, store: '', shop: '', link: '', priority: 'normal', due: '', by: 'doug', del: false };
     for (var k in (extra || {})) it[k] = extra[k];
     db.items.push(it); return it;
   }
@@ -43,6 +43,22 @@
       return { id: c.id, text: c.text, person: c.person, days: c.days, today: dueOn(c, today), done: !!cdone[c.id + '|' + today], missed: missed };
     });
   }
+  // week goal (Sunday to Saturday) for the kid, like the real server
+  var goals = {}, customIdeas = [];
+  function weekState(today) {
+    var rows = chores.filter(function (c) { return !c.del && (c.person === 'roman' || c.person === 'all'); });
+    if (!rows.length) return null;
+    var ws = addD(today, -dow(today));
+    function shape(w, upTo) {
+      var g = goals[w] || { target: 80, reward: '', closed: false }, total = 0, got = 0;
+      for (var i = 0; i < 7; i++) { var d = addD(w, i); if (d > upTo) break; rows.forEach(function (c) { if (dueOn(c, d)) { total++; if (cdone[c.id + '|' + d]) got++; } }); }
+      var pct = total ? Math.round(got / total * 100) : 0;
+      return { week: w, target: g.target, reward: g.reward, closed: !!g.closed, total: total, done: got, pct: pct, earned: total > 0 && pct >= g.target };
+    }
+    var o = shape(ws, today); o.kid = 'roman'; o.name = 'Roman'; o.history = [];
+    for (var k = 1; k <= 4; k++) { var w = addD(ws, -7 * k), h = shape(w, addD(w, 6)); if (h.total) o.history.push(h); }
+    return o;
+  }
   function pub(u) { return u; }
   function visible(l) { return l.members.indexOf(me.id) >= 0; }
   function state() {
@@ -52,9 +68,9 @@
       db.secs.filter(function (s) { return s.list === l.id; }).forEach(function (s) {
         var tops = [];
         db.items.filter(function (i) { return i.sec === s.id && !i.del && !i.parent; }).forEach(function (i) {
-          tops.push({ id: i.id, text: i.text, done: i.done, store: i.store, shop: i.shop, priority: i.priority, due: i.due, created_by: i.by,
+          tops.push({ id: i.id, text: i.text, done: i.done, store: i.store, shop: i.shop, link: i.link || '', priority: i.priority, due: i.due, created_by: i.by,
             kids: db.items.filter(function (k) { return k.parent === i.id && !k.del; }).map(function (k) {
-              return { id: k.id, text: k.text, done: k.done, store: k.store, shop: k.shop, priority: k.priority, due: k.due, created_by: k.by, kids: [] }; }) });
+              return { id: k.id, text: k.text, done: k.done, store: k.store, shop: k.shop, link: k.link || '', priority: k.priority, due: k.due, created_by: k.by, kids: [] }; }) });
         });
         o.sections.push({ id: s.id, name: s.name, items: tops });
       });
@@ -78,7 +94,9 @@
       if (p === '/api/login') { me = CFG.users.filter(function (u) { return u.id === b.user; })[0]; return me ? res(200, { user: me }) : res(401, { error: 'Wrong PIN.' }); }
       if (p === '/api/logout') { me = null; return res(200, {}); }
       if (!me) return res(401, { error: 'Not signed in.' });
-      if (p === '/api/state') { var st = state(); var dm = /[?&]d=([\d-]+)/.exec(String(url)); st.chores = choreState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.people = CFG.users.map(function (u) { return { id: u.id, name: u.name }; }); return res(200, st); }
+      if (p === '/api/state') { var st = state(); var dm = /[?&]d=([\d-]+)/.exec(String(url)); st.chores = choreState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.people = CFG.users.map(function (u) { return { id: u.id, name: u.name }; }); st.week = weekState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.ideas_custom = kid() ? [] : customIdeas.slice(); return res(200, st); }
+      if (p === '/api/week' && m === 'PATCH') { if (kid()) return res(403, { error: 'Only Dad can set the weekly goal.' }); var gg = goals[b.week] || (goals[b.week] = { target: 80, reward: '', closed: false }); if ('target' in b) gg.target = +b.target; if ('reward' in b) gg.reward = String(b.reward).slice(0, 120); if ('closed' in b) gg.closed = !!b.closed; return res(200, { ok: true }); }
+      if (p === '/api/ideas' && m === 'POST') { if (kid()) return res(403, { error: 'Only Dad can add ideas for now.' }); customIdeas.push(String(b.text).slice(0, 120)); return res(200, { ok: true }); }
       var cm = /^\/api\/chores(?:\/(\d+))?(?:\/(done))?$/.exec(p);
       if (cm) {
         var cx = cm[1] ? chores.filter(function (c) { return c.id === +cm[1]; })[0] : null;
@@ -100,7 +118,7 @@
           sec = sh.id;
         }
         var sl2 = b.shop === 'food' ? db.food : db.stores, st = sl2.indexOf(b.store) >= 0 ? b.store : '';
-        var it = add(sec, b.parent_id || 0, b.text, { store: st, shop: st && b.shop === 'food' ? 'food' : '', priority: b.priority || 'normal', by: me.id });
+        var it = add(sec, b.parent_id || 0, b.text, { store: st, shop: st && b.shop === 'food' ? 'food' : '', link: /^(https?:\/\/|[\w-]+\.)/i.test(b.link || '') ? (/^https?:/i.test(b.link) ? b.link : 'https://' + b.link) : '', priority: b.priority || 'normal', by: me.id });
         recalc(it.parent); return res(200, { id: it.id });
       }
       var mv = /^\/api\/items\/(\d+)\/move$/.exec(p);
@@ -119,10 +137,11 @@
         var i = item(+mm[1]); if (!i) return res(404, { error: 'Not found.' });
         var own = !kid() || i.by === me.id;
         if (m === 'DELETE') { if (!own) return res(403, { error: 'You can only delete your own items.' }); i.del = true; recalc(i.parent); return res(200, {}); }
-        var edits = ['text', 'store', 'shop', 'priority', 'due', 'deleted', 'section_id', 'parent_id'].some(function (k) { return k in b; });
+        var edits = ['text', 'store', 'shop', 'link', 'priority', 'due', 'deleted', 'section_id', 'parent_id'].some(function (k) { return k in b; });
         if (edits && !own) return res(403, { error: 'You can only change your own items.' });
         if ('text' in b) i.text = String(b.text).trim() || i.text;
         if (('section_id' in b || 'parent_id' in b) && kid()) return res(403, { error: 'Only Dad can move items between lists or group them.' });
+        if ('link' in b) i.link = /^https?:\/\//i.test(b.link || '') ? b.link : '';
         if ('shop' in b) i.shop = b.shop === 'food' ? 'food' : '';
         if ('store' in b) i.store = (i.shop === 'food' ? db.food : db.stores).indexOf(b.store) >= 0 ? b.store : '';
         if ('parent_id' in b) {

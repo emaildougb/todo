@@ -201,3 +201,61 @@ h1{font-size:30px}
 .seg.two{grid-template-columns:1fr 1fr}
 .letdad{background:var(--soft);border:1px solid var(--line);border-radius:12px;padding:10px 14px;margin:10px 0;font-size:14px}
 .movesel{font-size:13px;padding:4px 6px;max-width:112px}
+
+/* ---- 1.2.0: week goal, ideas, countdown, wish links, garage ---- */
+.linkchip{color:var(--accent);text-decoration:none;border:1px solid var(--accent)}
+.weekcard{background:var(--card);border:1.5px solid var(--accent);border-radius:14px;padding:12px 14px;margin:8px 0 12px}
+.weekcard.earned{background:var(--soft)}
+.wk-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px}
+.wk-head .name{font-family:var(--serif);font-size:18px;font-weight:700}
+.wk-head .num{font-size:13px;color:var(--muted)}
+.goalbar{position:relative;height:14px;background:var(--line);border-radius:99px;overflow:visible}
+.goalbar>div{height:100%;background:var(--accent);border-radius:99px;transition:width .35s}
+.goalbar>i{position:absolute;top:-4px;width:3px;height:22px;margin-left:-1px;background:var(--ink);border-radius:2px;opacity:.7}
+.goalline{margin-top:8px;font-size:14px}
+.reward{margin-top:4px;font-size:15px}
+.reward.muted{color:var(--muted);font-size:14px}
+.earnedtag{margin-top:8px;font-weight:700;color:var(--ok);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.earnedtag.paid{color:var(--muted);font-weight:600}
+.earnedtag .ghost,.wkrow .ghost{padding:4px 10px;font-size:13px}
+.goaledit{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.goaledit summary{cursor:pointer;color:var(--accent);font-weight:600}
+.goaledit label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+.goaledit input[type=number],.goaledit input[type=text]{width:100%}
+.goaledit .addrow{margin-top:10px}
+.wkhist{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.wkhist h4{margin:0 0 4px;font-size:13px;color:var(--muted);font-weight:600}
+.wkrow{display:flex;gap:10px;align-items:center;font-size:14px;padding:3px 0;flex-wrap:wrap}
+.wkrow span:first-child{min-width:48px;font-weight:600}
+.wkrow .ok{color:var(--ok);font-weight:600}.wkrow .miss{color:var(--muted)}
+.wkreward{font-size:13px;color:var(--muted);margin:0 0 4px 58px}
+.ideacard{background:var(--soft);border-radius:14px;padding:12px 14px;margin:0 0 12px;display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+.ideacard .il{font-size:13px;color:var(--muted)}
+.ideacard b{font-size:16px}
+.ideacard .ghost{margin-top:6px;padding:6px 12px;font-size:14px}
+.countdown{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 12px}
+.cd{display:flex;flex-direction:column;gap:2px;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;cursor:pointer}
+.cd:active{transform:scale(.98)}
+.cdn{font-family:var(--serif);font-size:24px;font-weight:700;color:var(--accent)}
+.cdl{font-size:14px}
+.cdx{font-size:12px;color:var(--muted);min-height:16px}
+.garage{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;margin:0 0 12px}
+.garage .gh{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+.garage .gh .name{font-family:var(--serif);font-size:18px;font-weight:700}
+.garage .gh .num{font-size:13px;color:var(--muted)}
+.carbtn{display:block;width:100%;border:0;border-radius:12px;padding:10px 6px 4px;cursor:pointer;background:var(--soft);transition:background .5s;color:var(--ink)}
+.carbtn .car{width:100%;height:auto;max-height:190px;display:block}
+.garage.up .carbtn{background:#1b2433}
+.lbtn{width:100%;margin-top:10px;padding:12px;font-weight:700}
+.lbtn .l-up{display:none}
+.garage.up .lbtn .l-up{display:inline}
+.garage.up .lbtn .l-down{display:none}
+.car .lamp{transform-origin:262px 66px;transition:transform .5s cubic-bezier(.3,1.5,.5,1)}
+.garage.up .car .lamp{transform:rotate(-62deg)}
+.car .lens{opacity:0;transition:opacity .25s .2s}
+.garage.up .car .lens{opacity:1}
+.car .beam{opacity:0;transition:opacity .4s .25s}
+.garage.up .car .beam{opacity:.8}
+@media (prefers-reduced-motion:reduce){
+  .car .lamp,.car .lens,.car .beam,.carbtn{transition:none}
+}

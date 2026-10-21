@@ -53,6 +53,7 @@ function ensureSchema(env) {
         env.DB.prepare('CREATE TABLE IF NOT EXISTS attempts (user TEXT PRIMARY KEY, n INTEGER, until INTEGER)'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS chores (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, person TEXT, days TEXT DEFAULT \'\', deleted INTEGER DEFAULT 0)'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS chore_done (chore_id INTEGER, day TEXT, by TEXT, PRIMARY KEY (chore_id, day))'),
+        env.DB.prepare('CREATE TABLE IF NOT EXISTS week_goals (week TEXT PRIMARY KEY, target INTEGER, reward TEXT, closed INTEGER DEFAULT 0)'),
       ]);
       // New columns go in this list, never into the CREATE TABLE above, so updates never break existing data.
       await addColumns(env, 'items', [
@@ -64,10 +65,24 @@ function ensureSchema(env) {
         ['created_by', "TEXT DEFAULT 'doug'"],
         ['updated_at', 'INTEGER DEFAULT 0'],
         ['shop', "TEXT DEFAULT ''"],
+        ['link', "TEXT DEFAULT ''"],
       ]);
+      await addColumns(env, 'chores', [['created', "TEXT DEFAULT ''"]]);
       await seed(env);
       // 1.1.0: Roman's own list is now called "Roman's To do" (only if it still has the old name).
       await env.DB.prepare("UPDATE lists SET name = ? WHERE key = 'roman' AND name = 'Roman'").bind("Roman's To do").run();
+      // 1.2.0: the shared wish list. New databases get it from the seed; older ones get it here, once.
+      const wishDone = await env.DB.prepare("SELECT v FROM settings WHERE k = 'wish_ready'").first();
+      if (!wishDone) {
+        await env.DB.prepare("INSERT OR IGNORE INTO lists (key, name, pos) VALUES ('wish', ?, 4)").bind("Roman's Wish List").run();
+        const wl = await env.DB.prepare("SELECT id FROM lists WHERE key = 'wish'").first();
+        const have = await env.DB.prepare('SELECT COUNT(*) AS n FROM sections WHERE list_id = ?').bind(wl.id).first();
+        if (!have.n) {
+          let sp = 0;
+          for (const name of ['Birthday', 'Christmas', 'Anytime ideas']) await env.DB.prepare('INSERT INTO sections (list_id, name, pos) VALUES (?,?,?)').bind(wl.id, name, sp++).run();
+        }
+        await env.DB.prepare("INSERT OR REPLACE INTO settings (k, v) VALUES ('wish_ready', '1')").run();
+      }
     })().catch((e) => {
       schemaReady = null;
       throw e;
@@ -205,7 +220,7 @@ async function buildState(env, user) {
   const secs = (await env.DB.prepare(`SELECT id, list_id, name FROM sections WHERE list_id IN (${ph}) ORDER BY pos, id`).bind(...ids).all()).results;
   const rows = (
     await env.DB.prepare(
-      `SELECT i.id, i.section_id, i.parent_id, i.text, i.done, i.store, i.shop, i.priority, i.due, i.created_by
+      `SELECT i.id, i.section_id, i.parent_id, i.text, i.done, i.store, i.shop, i.link, i.priority, i.due, i.created_by
        FROM items i JOIN sections s ON s.id = i.section_id
        WHERE s.list_id IN (${ph}) AND COALESCE(i.deleted, 0) = 0 ORDER BY i.pos, i.id`
     ).bind(...ids).all()
@@ -213,7 +228,7 @@ async function buildState(env, user) {
   const byId = {};
   const tops = {};
   for (const r of rows) {
-    const it = { id: r.id, text: r.text, done: !!r.done, store: r.store || '', shop: r.shop || '', priority: r.priority || 'normal', due: r.due || '', created_by: r.created_by, kids: [] };
+    const it = { id: r.id, text: r.text, done: !!r.done, store: r.store || '', shop: r.shop || '', link: r.link || '', priority: r.priority || 'normal', due: r.due || '', created_by: r.created_by, kids: [] };
     byId[r.id] = it;
     if (!r.parent_id) (tops[r.section_id] = tops[r.section_id] || []).push(it);
   }
@@ -246,6 +261,18 @@ async function recalcParent(env, pid) {
   if (r && r.n > 0) await env.DB.prepare('UPDATE items SET done = ?, updated_at = ? WHERE id = ?').bind(r.d === r.n ? 1 : 0, Date.now(), pid).run();
 }
 
+// Keeps a link only if it is a real web address. A bare "amazon.com/x" gets https:// put in front.
+function cleanLink(v) {
+  let t = String(v == null ? '' : v).trim().slice(0, 500);
+  if (!t) return '';
+  if (!/^https?:\/\//i.test(t)) t = /^[\w-]+(\.[\w-]+)+([/?#].*)?$/.test(t) ? 'https://' + t : '';
+  try {
+    const u = new URL(t);
+    return u.protocol === 'http:' || u.protocol === 'https:' ? u.href : '';
+  } catch (e) {
+    return '';
+  }
+}
 const clean = (s, max = 300) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, max);
 
 // ---------- writing ----------
@@ -291,6 +318,7 @@ async function createItem(env, user, b) {
   }
   if (['high', 'low'].includes(b.priority)) extra.push(['priority', b.priority]);
   if (/^\d{4}-\d{2}-\d{2}$/.test(b.due || '')) extra.push(['due', b.due]);
+  if (b.link && cleanLink(b.link)) extra.push(['link', cleanLink(b.link)]);
   for (const [k, v] of extra) await env.DB.prepare(`UPDATE items SET ${k} = ? WHERE id = ?`).bind(v, id).run();
   await recalcParent(env, parentId);
   return json({ id });
@@ -300,7 +328,7 @@ async function patchItem(env, user, id, b) {
   const it = await getItem(env, id);
   if (!it || !canSee(user, it.list_key)) return fail('Not found', 404);
   const ownsIt = isParent(user) || it.created_by === user.id;
-  const editing = ['text', 'store', 'shop', 'priority', 'due', 'deleted', 'section_id', 'parent_id'].some((k) => k in b);
+  const editing = ['text', 'store', 'shop', 'link', 'priority', 'due', 'deleted', 'section_id', 'parent_id'].some((k) => k in b);
   if (editing && !ownsIt) return fail('You can check this off, but only the person who added it can change it.', 403);
   if (('section_id' in b || 'parent_id' in b) && !isParent(user)) return fail('Only Dad can move items between lists or group them.', 403);
   const shop = 'shop' in b ? (b.shop === 'food' ? 'food' : '') : it.shop || '';
@@ -338,6 +366,10 @@ async function patchItem(env, user, id, b) {
   if ('store' in b) {
     sets.push('store = ?');
     vals.push(b.store && stores.includes(b.store) ? b.store : '');
+  }
+  if ('link' in b) {
+    sets.push('link = ?');
+    vals.push(cleanLink(b.link));
   }
   if ('priority' in b) {
     sets.push('priority = ?');
@@ -558,7 +590,7 @@ async function chores(env, user, method, id, request, url) {
     const text = String(body.text || '').trim().slice(0, 200);
     const who = person(body.person);
     if (!text || !who) return fail('Add a name and pick who it is for.');
-    const r = await env.DB.prepare('INSERT INTO chores (text, person, days) VALUES (?, ?, ?)').bind(text, who, parseDays(body.days).join(',')).run();
+    const r = await env.DB.prepare('INSERT INTO chores (text, person, days, created) VALUES (?, ?, ?, ?)').bind(text, who, parseDays(body.days).join(','), DAY_RE.test(body.day || '') ? body.day : '').run();
     return json({ id: r.meta.last_row_id });
   }
   const row = id ? await env.DB.prepare('SELECT * FROM chores WHERE id = ?').bind(id).first() : null;
@@ -575,6 +607,89 @@ async function chores(env, user, method, id, request, url) {
     return json({ ok: true });
   }
   return fail('Not found', 404);
+}
+
+// ---------- the kid's week (Sunday to Saturday) ----------
+const weekStartOf = (day) => addDays(day, -dow(day));
+
+async function weekState(env, today) {
+  const kid = USERS.find((u) => u.role === 'kid');
+  if (!kid) return null;
+  const rows = (await env.DB.prepare('SELECT id, person, days, created FROM chores WHERE COALESCE(deleted, 0) = 0').all()).results
+    .filter((c) => c.person === kid.id || c.person === 'all')
+    .map((c) => ({ id: c.id, days: c.days ? c.days.split(',').map(Number) : [], created: c.created || '' }));
+  if (!rows.length) return null;
+  const thisWeek = weekStartOf(today);
+  const first = addDays(thisWeek, -28);
+  const done = (await env.DB.prepare('SELECT chore_id, day FROM chore_done WHERE day >= ?').bind(first).all()).results;
+  const doneSet = new Set(done.map((r) => r.chore_id + '|' + r.day));
+  const goals = (await env.DB.prepare('SELECT week, target, reward, closed FROM week_goals WHERE week >= ?').bind(first).all()).results;
+  const goalOf = (w) => goals.find((g) => g.week === w) || { week: w, target: 80, reward: '', closed: 0 };
+  const count = (w, upTo) => {
+    let total = 0, got = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(w, i);
+      if (d > upTo) break;
+      for (const c of rows) {
+        if (c.created && d < c.created) continue;
+        if (!dueOn(c, d)) continue;
+        total++;
+        if (doneSet.has(c.id + '|' + d)) got++;
+      }
+    }
+    return { total, got, pct: total ? Math.round((got / total) * 100) : 0 };
+  };
+  const shape = (w, upTo) => {
+    const g = goalOf(w);
+    const c = count(w, upTo);
+    return { week: w, target: g.target, reward: g.reward || '', closed: !!g.closed, total: c.total, done: c.got, pct: c.pct, earned: c.total > 0 && c.pct >= g.target };
+  };
+  const out = { kid: kid.id, name: kid.name, ...shape(thisWeek, today), history: [] };
+  for (let i = 1; i <= 4; i++) {
+    const w = addDays(thisWeek, -7 * i);
+    const h = shape(w, addDays(w, 6));
+    if (h.total > 0) out.history.push(h);
+  }
+  return out;
+}
+
+async function saveWeek(env, user, request) {
+  if (!isParent(user)) return fail('Only Dad can set the weekly goal.', 403);
+  const b = await request.json().catch(() => ({}));
+  const week = String(b.week || '');
+  if (!DAY_RE.test(week) || dow(week) !== 0) return fail('Bad week.');
+  const cur = (await env.DB.prepare('SELECT target, reward, closed FROM week_goals WHERE week = ?').bind(week).first()) || { target: 80, reward: '', closed: 0 };
+  let target = cur.target;
+  if ('target' in b) {
+    target = Math.round(Number(b.target));
+    if (!(target >= 1 && target <= 100)) return fail('Pick a goal from 1 to 100.');
+  }
+  const reward = 'reward' in b ? clean(b.reward, 120) : cur.reward;
+  const closed = 'closed' in b ? (b.closed ? 1 : 0) : cur.closed;
+  await env.DB.prepare('INSERT OR REPLACE INTO week_goals (week, target, reward, closed) VALUES (?, ?, ?, ?)').bind(week, target, reward, closed).run();
+  return json({ ok: true });
+}
+
+async function customIdeas(env) {
+  const r = await env.DB.prepare("SELECT v FROM settings WHERE k = 'ideas_custom'").first();
+  try {
+    const a = JSON.parse(r ? r.v : '[]');
+    return Array.isArray(a) ? a.map((x) => String(x)) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function addIdea(env, user, request) {
+  if (!isParent(user)) return fail('Only Dad can add ideas for now.', 403);
+  const b = await request.json().catch(() => ({}));
+  const text = clean(b.text, 120);
+  if (!text) return fail('Type an idea first.');
+  const list = await customIdeas(env);
+  if (list.length >= 100) return fail('That is a lot of ideas. Time to use some.');
+  if (!list.includes(text)) list.push(text);
+  await env.DB.prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)').bind('ideas_custom', JSON.stringify(list)).run();
+  return json({ ok: true, ideas_custom: list });
 }
 
 // ---------- routing ----------
@@ -597,6 +712,8 @@ async function route(request, env, url) {
     const d = url.searchParams.get('d');
     state.chores = await choreState(env, user, DAY_RE.test(d || '') ? d : new Date().toISOString().slice(0, 10));
     state.people = USERS.map((u) => ({ id: u.id, name: u.name }));
+    state.week = await weekState(env, DAY_RE.test(d || '') ? d : new Date().toISOString().slice(0, 10));
+    state.ideas_custom = isParent(user) ? await customIdeas(env) : [];
     return json(state);
   }
   if (name === 'chores' && ['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) return chores(env, user, method, id, request, url);
@@ -608,6 +725,8 @@ async function route(request, env, url) {
   if (name === 'sections' && ['POST', 'PATCH', 'DELETE'].includes(method)) return sections(env, user, method, id, request);
   if (name === 'bulk' && method === 'POST') return bulk(env, user, request);
   if (name === 'import' && method === 'POST') return importOld(env, user, request);
+  if (name === 'week' && method === 'PATCH') return saveWeek(env, user, request);
+  if (name === 'ideas' && method === 'POST') return addIdea(env, user, request);
   if (name === 'stores' && method === 'PATCH') return saveStores(env, user, request);
   return fail('Not found', 404);
 }

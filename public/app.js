@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.1.0';
+  var APP_VER = '1.2.0';
   var NEWS = [
+    { v: '1.2.0', d: 'Oct 20, 2026', notes: ["Roman's Wish List with links, a countdown to Christmas and his birthday, Roman's week with a percent goal and reward, a bank of weekly idea suggestions, and a garage with flip up headlights."] },
     { v: '1.1.0', d: 'Oct 20, 2026', notes: ['Swipe left to delete, slide items up and down with the grip, move items and whole sections between lists, group items under a parent, Food and Other shopping lists, stacked list buttons, and an instant Add.'] },
     { v: '1.0.0', d: 'Oct 18, 2026', notes: ['First shared version: Personal, Work, and Roman lists, chores for Roman, shopping by store, PIN sign in, and one list on every phone.'] },
   ];
@@ -11,7 +12,7 @@
   var S = {
     me: null, users: [], data: null, raw: '', view: 'home', listKey: null, sheet: null,
     toast: null, drafts: {}, choreDays: [], editChore: 0, hideDone: false, newer: false, pop: null, loginUser: '', err: '', busy: false,
-    adding: false, pendingShop: [], shopTab: 'other',
+    adding: false, pendingShop: [], shopTab: 'other', lamps: false,
   };
   var app = document.getElementById('app');
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -134,6 +135,7 @@
     if (it.store) h += '<span class="chip store">' + esc(it.store) + '</span>';
     if (it.priority === 'high') h += '<span class="chip hi">High</span>';
     if (it.due) h += '<span class="chip' + (it.due < today() && !it.done ? ' late' : '') + '">' + fmtDue(it.due) + '</span>';
+    if (it.link) h += '<a class="chip linkchip" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">Open link</a>';
     return h ? '<div class="meta">' + h + '</div>' : '';
   }
 
@@ -187,7 +189,7 @@
       s.items.forEach(function (it) { h += rowHtml(it, false, 0); });
       h += '<div class="add"><div class="addrow"><input type="text" data-draft="add-' + s.id + '" placeholder="Add an item" enterkeyhint="done" autocomplete="off">' +
         '<button class="pri" data-act="add">Add</button></div>' +
-        '<details><summary>More</summary><div class="morerow"><select data-draft="st-' + s.id + '">' + options(S.data.stores, '', 'No store') + '</select>' +
+        '<details><summary>More</summary><div class="morerow">' + (l.key === 'wish' ? '<input type="url" data-draft="ln-' + s.id + '" placeholder="Link (optional)" autocomplete="off" autocapitalize="off">' : '<select data-draft="st-' + s.id + '">' + options(S.data.stores, '', 'No store') + '</select>') +
         '<select data-draft="pr-' + s.id + '"><option value="normal">Normal</option><option value="high">High</option><option value="low">Low</option></select></div></details></div></section>';
     });
     if (isParent()) {
@@ -231,7 +233,7 @@
     var lists = S.data.lists, open = 0;
     lists.forEach(function (l) { var s = stats(l); open += s[1] - s[0]; });
     var shop = shopRows().filter(function (r) { return !r.it.done; }).length;
-    var h = top(greeting() + ', ' + S.me.name, dueLine(open));
+    var h = top(greeting() + ', ' + S.me.name, dueLine(open)) + weekCardHtml() + ideaLineHtml() + countdownHtml() + (S.me.role === 'kid' ? garageHtml() : '');
     lists.forEach(function (l) {
       var s = stats(l), pct = s[1] ? Math.round(s[0] / s[1] * 100) : 0, next = upNext(l), mine = l.key === 'personal' || l.key === 'work';
       h += '<div class="homecard' + (mine ? ' big' : '') + '"><button class="homehead" data-act="gotolist" data-key="' + esc(l.key) + '"><span class="name">' + esc(l.name) + '</span>' +
@@ -255,11 +257,144 @@
       h = mine ? h.replace('</div><div class="homecard', '</div>' + chtml + '<div class="homecard') : h;
       if (!mine) h += chtml;
     }
+    if (S.me.role !== 'kid') h += garageHtml();
     h += '<button class="tile shop wide" data-act="gotoshop"><span class="name">Shopping</span><span class="num">' + shop + ' to buy</span></button>';
     if (!lists.length) h += '<div class="empty">No lists to show yet.</div>';
     return h;
   }
 
+
+  // ---------- the week goal, ideas, countdown, garage ----------
+  // [idea, seasons (w winter, p spring, u summer, f fall, a any), cost (0 free, 1 small, 2 bigger)]
+  var IDEAS = [
+    ['Pancake breakfast, Roman picks the toppings', 'a', 1], ['Movie night with popcorn, he picks the movie', 'a', 1],
+    ['Drive to a car meet or just look at cool cars together', 'a', 0], ['Wash and wax a vehicle together', 'a', 0],
+    ['Build something out of scrap wood in the shop', 'a', 0], ['An hour on the motorcycle project, Roman runs the wrenches', 'a', 0],
+    ['Hunt for a treasure at a pull a part yard', 'a', 1], ['Burger or pizza night, Roman cooks and Dad helps', 'a', 1],
+    ['Arcade or go karts', 'a', 2], ['Harbor Freight trip, Roman picks one tool under $20', 'a', 1],
+    ['Bowling', 'a', 2], ['Board game tournament, loser does the dishes', 'a', 0],
+    ['Build a Lego or model car kit together', 'a', 1], ['Watch a classic car movie together', 'a', 0],
+    ['Lunch date, just the two of you, his pick', 'a', 2], ['Shoot hoops or throw the football', 'a', 0],
+    ['Teach him one new skill: oil change, tire check, or a jump start', 'a', 0], ['Pick a YouTube build video and try to copy it', 'a', 0],
+    ['Dessert run, any treat he wants', 'a', 1], ['Stay up late with snacks and a video game together', 'a', 0],
+    ['Sketch his dream car and price out the parts', 'a', 0], ['Roman picks the music for a whole car ride', 'a', 0],
+    ['Homemade ice cream or milkshakes', 'a', 1], ['Build a birdhouse', 'a', 1],
+    ['Hot cocoa and a puzzle', 'w', 1], ['Sledding or snow play if it snows', 'w', 0],
+    ['Blanket fort and a movie inside it', 'w', 0], ['Bake cookies together', 'w', 1],
+    ['Rock climbing gym', 'w', 2], ['Drive around to see Christmas lights', 'w', 0],
+    ['Garage project with the heater on', 'w', 0], ['Fly a kite', 'p', 1],
+    ['Bike ride and ice cream', 'p', 1], ['Plant a tomato or pepper plant together', 'p', 1],
+    ['Hike to a waterfall', 'p', 0], ['Muddy bike day on a trail', 'p', 0],
+    ['Go to a baseball game', 'p', 2], ['Yard cleanup, then a treat', 'p', 1],
+    ['Swim at the lake or river', 'u', 0], ['Backyard campout', 'u', 0],
+    ['BBQ, Roman picks the meat', 'u', 1], ['Fishing trip', 'u', 1],
+    ['Sprinkler run or water balloon fight', 'u', 0], ['Day trip to the coast', 'u', 2],
+    ['Go to a car show', 'u', 0], ['Evening drive with the windows down and an ice cream stop', 'u', 1],
+    ['Bonfire and s\u2019mores', 'u', 1], ['Minibike ride day', 'u', 0],
+    ['Pumpkin patch or corn maze', 'f', 2], ['Carve pumpkins', 'f', 1],
+    ['Watch a football game together with snacks', 'f', 1], ['Chili cook off at home', 'f', 1],
+    ['Rake leaves, then jump in the pile', 'f', 0], ['Apple picking and a pie', 'f', 2],
+    ['Cozy fire and a movie', 'f', 0],
+  ];
+  var SEASON_OF = ['w', 'w', 'p', 'p', 'p', 'u', 'u', 'u', 'f', 'f', 'f', 'w'];
+  function allIdeas() { return IDEAS.map(function (x) { return x[0]; }).concat((S.data && S.data.ideas_custom) || []); }
+  function ideaPool() {
+    var ssn = SEASON_OF[new Date().getMonth()];
+    var base = IDEAS.filter(function (x) { return x[1] === 'a' || x[1] === ssn; }).map(function (x) { return x[0]; });
+    return base.concat((S.data && S.data.ideas_custom) || []);
+  }
+  function usedIdeas() { try { var a = JSON.parse(store('todo-ideas-used') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function markUsed(text) {
+    if (!text || allIdeas().indexOf(text) < 0) return;
+    var u = usedIdeas(); if (u.indexOf(text) < 0) u.push(text); store('todo-ideas-used', JSON.stringify(u.slice(-100)));
+  }
+  function nextIdea() {
+    var used = usedIdeas(), cur = S.drafts['wk-reward'];
+    var pool = ideaPool().filter(function (x) { return used.indexOf(x) < 0 && x !== cur; });
+    if (!pool.length) { store('todo-ideas-used', '[]'); pool = ideaPool().filter(function (x) { return x !== cur; }); }
+    return pool[Math.floor(Math.random() * pool.length)] || '';
+  }
+  // The same idea all week long, for everyone, so it does not jump around.
+  function weekIdea() {
+    var wk = S.data.week ? S.data.week.week : today(), n = 0, pool = ideaPool();
+    for (var i = 0; i < wk.length; i++) n = (n * 31 + wk.charCodeAt(i)) % 100003;
+    return pool[n % pool.length] || '';
+  }
+  function plusDays(d, n) { var x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+
+  function weekCardHtml() {
+    var w = S.data.week; if (!w) return '';
+    var ed = isParent(), pct = Math.min(100, w.pct);
+    var h = '<div class="weekcard' + (w.earned ? ' earned' : '') + '"><div class="wk-head"><span class="name">' + esc(w.name) + '\u2019s week</span><span class="num">' + fmtDue(w.week) + ' to ' + fmtDue(plusDays(w.week, 6)) + '</span></div>' +
+      '<div class="goalbar"><div style="width:' + pct + '%"></div><i style="left:' + w.target + '%" title="Goal"></i></div>' +
+      '<div class="goalline"><b>' + w.pct + '%</b> so far (' + w.done + ' of ' + w.total + ' chores). Goal: ' + w.target + '%.</div>';
+    if (w.reward) h += '<div class="reward">Reward: <b>' + esc(w.reward) + '</b></div>';
+    else h += '<div class="reward muted">' + (ed ? 'No reward picked yet.' : 'Dad has not picked a reward yet.') + '</div>';
+    if (w.earned) h += w.closed ? '<div class="earnedtag paid">Earned and paid out</div>' : '<div class="earnedtag">Earned!' + (ed ? ' <button class="ghost" data-act="paid" data-week="' + w.week + '">Paid out</button>' : '') + '</div>';
+    if (ed) {
+      var open = Object.keys(S.drafts).some(function (k) { return k.indexOf('wk-') === 0 || k.indexOf('idea-') === 0; });
+      h += '<details class="goaledit"' + (open ? ' open' : '') + '><summary>Set the goal and reward</summary>' +
+        '<label>Goal percent</label><input type="number" inputmode="numeric" min="1" max="100" data-draft="wk-target" value="' + w.target + '">' +
+        '<label>Reward (money, a gift, or time with Dad)</label><input type="text" data-draft="wk-reward" value="' + esc(w.reward) + '" placeholder="What does Roman earn?" autocomplete="off">' +
+        '<div class="addrow"><button class="ghost" data-act="idea">Need an idea?</button><button class="pri" data-act="saveweek">Save</button></div>' +
+        '<label>Add your own idea</label><div class="addrow"><input type="text" data-draft="idea-new" placeholder="Something fun to do" autocomplete="off" style="flex:1"><button class="ghost" data-act="newidea">Add</button></div></details>';
+    }
+    if (w.history.length) {
+      h += '<div class="wkhist"><h4>Past weeks</h4>';
+      w.history.forEach(function (x) {
+        h += '<div class="wkrow"><span>' + fmtDue(x.week) + '</span><span>' + x.pct + '% (goal ' + x.target + '%)</span><span class="' + (x.earned ? 'ok' : 'miss') + '">' + (x.earned ? (x.closed ? 'Paid out' : 'Earned') : 'Missed') + '</span>' +
+          (ed && x.earned && !x.closed ? '<button class="ghost" data-act="paid" data-week="' + x.week + '">Paid out</button>' : '') + '</div>' +
+          (x.reward ? '<div class="wkreward">' + esc(x.reward) + '</div>' : '');
+      });
+      h += '</div>';
+    }
+    return h + '</div>';
+  }
+  function ideaLineHtml() {
+    if (!isParent() || !S.data.week) return '';
+    var t = weekIdea(); if (!t) return '';
+    return '<div class="ideacard"><span class="il">Idea for this week</span><b>' + esc(t) + '</b><button class="ghost" data-act="useidea">Use it as the reward</button></div>';
+  }
+  function daysUntil(m, d) {
+    var t = new Date(), a = Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()), y = t.getFullYear(), n = Date.UTC(y, m, d);
+    if (n < a) { y++; n = Date.UTC(y, m, d); }
+    return { days: Math.round((n - a) / 86400000), year: y };
+  }
+  function wishCount(name) {
+    var n = 0;
+    S.data.lists.forEach(function (l) { if (l.key === 'wish') l.sections.forEach(function (s) { if (s.name.toLowerCase() === name) s.items.forEach(function (it) { if (!itemDone(it)) n++; }); }); });
+    return n;
+  }
+  function countdownHtml() {
+    if (!S.data.lists.some(function (l) { return l.key === 'wish'; })) return '';
+    var kidView = S.me.role === 'kid', nm = S.data.week ? S.data.week.name : 'Roman';
+    var one = function (info, label, extra, cnt) {
+      var dd = info.days === 0 ? 'Today!' : info.days === 1 ? '1 day' : info.days + ' days';
+      return '<button class="cd" data-act="gotolist" data-key="wish"><span class="cdn">' + dd + '</span><span class="cdl">' + esc(label) + '</span><span class="cdx">' + esc(extra + (cnt ? (extra ? ' \u00B7 ' : '') + cnt + (cnt === 1 ? ' idea' : ' ideas') : '')) + '</span></button>';
+    };
+    var xm = daysUntil(11, 25), bd = daysUntil(5, 14);
+    return '<div class="countdown">' + one(xm, 'until Christmas', '', wishCount('christmas')) +
+      one(bd, 'until ' + (kidView ? 'your' : nm + '\u2019s') + ' birthday', 'Turns ' + (bd.year - 2014), wishCount('birthday')) + '</div>';
+  }
+
+  var CAR_SVG = '<svg class="car" viewBox="0 0 320 130" role="img" aria-label="A sports car with flip up headlights">' +
+    '<defs><linearGradient id="beamg" x1="0" x2="1"><stop offset="0" stop-color="#fff3b0" stop-opacity=".95"/><stop offset="1" stop-color="#fff3b0" stop-opacity="0"/></linearGradient></defs>' +
+    '<ellipse cx="160" cy="117" rx="140" ry="5" fill="#000" opacity=".12"/>' +
+    '<path d="M16 94 L16 84 Q16 80 24 78 L92 69 L130 52 Q134 50 140 50 L190 50 Q196 50 200 53 L236 64 L290 70 Q302 72 304 80 L304 94 Z" fill="#d94a3a"/>' +
+    '<path d="M104 68 L130 55 L158 55 L158 68 Z M166 55 L190 55 L212 68 L166 68 Z" fill="#cfe3ee" opacity=".92"/>' +
+    '<path d="M162 55 L162 88 M60 92 H258" stroke="#000" stroke-opacity=".25" stroke-width="1.4" fill="none"/>' +
+    '<rect x="14" y="79" width="6" height="5" rx="1" fill="#ff8a7a"/>' +
+    '<circle cx="82" cy="96" r="21" fill="#101010"/><circle cx="244" cy="96" r="21" fill="#101010"/>' +
+    '<circle cx="82" cy="96" r="17" fill="#262626"/><circle cx="244" cy="96" r="17" fill="#262626"/>' +
+    '<circle cx="82" cy="96" r="8" fill="#c9c9c9"/><circle cx="244" cy="96" r="8" fill="#c9c9c9"/>' +
+    '<polygon class="beam" points="275,56 320,32 320,86 275,62" fill="url(#beamg)"/>' +
+    '<g transform="rotate(7 262 66)"><g class="lamp"><rect x="262" y="65" width="27" height="5" rx="2" fill="#c63f31" stroke="#8f2a20" stroke-width=".7"/>' +
+    '<circle class="lens" cx="275" cy="70.5" r="4.5" fill="#fff3b0" stroke="#555" stroke-width=".8"/></g></g></svg>';
+  function garageHtml() {
+    return '<div class="garage' + (S.lamps ? ' up' : '') + '"><div class="gh"><span class="name">Garage</span><span class="num">Tap the car</span></div>' +
+      '<button class="carbtn" data-act="lamps" aria-label="Pop up the headlights">' + CAR_SVG + '</button>' +
+      '<button class="pri lbtn" data-act="lamps"><span class="l-down">Pop up!</span><span class="l-up">Lights down</span></button></div>';
+  }
 
   // ---------- chores ----------
   var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -275,7 +410,7 @@
       (late && c.today ? '<div class="meta"><span class="chip late">Missed since ' + dayName(c.missed) + '</span></div>' : '') + '</div></div>';
   }
   function choresView() {
-    var h = top('Chores', 'Today, ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getDate());
+    var h = top('Chores', 'Today, ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getDate()) + weekCardHtml();
     var rows = (S.data.chores || []).filter(function (c) { return c.today; });
     var by = {};
     rows.forEach(function (c) { (by[c.person] = by[c.person] || []).push(c); });
@@ -394,7 +529,8 @@
     h += '<label>Store</label><select data-sheet="store"' + (ed ? '' : ' disabled') + '>' + options(storesFor(sh.shop), sh.store, 'No store') + '</select>';
     h += '<label>Priority</label><div class="seg">';
     [['high', 'High'], ['normal', 'Normal'], ['low', 'Low']].forEach(function (p) { h += '<button class="' + (sh.priority === p[0] ? 'on' : '') + '" data-act="pri" data-v="' + p[0] + '"' + (ed ? '' : ' disabled') + '>' + p[1] + '</button>'; });
-    h += '</div><label>Due date</label><input type="date" data-sheet="due" value="' + esc(sh.due) + '"' + (ed ? '' : ' disabled') + '>';
+    if (f.list.key === 'wish') h += '</div><label>Link (optional)</label><input type="url" data-sheet="link" value="' + esc(sh.link || '') + '" placeholder="Where to find it" autocapitalize="off"' + (ed ? '' : ' disabled') + '><label>Due date</label>';
+    else h += '</div><label>Due date</label><input type="date" data-sheet="due" value="' + esc(sh.due) + '"' + (ed ? '' : ' disabled') + '>';
     if (!f.parent && ed) {
       h += '<label>Add a sub item</label><div class="addrow"><input type="text" data-sheet="sub" value="' + esc(sh.sub || '') + '" placeholder="Sub item" style="flex:1"><button class="ghost" data-act="addsub">Add</button></div>';
     }
@@ -524,6 +660,28 @@
       var next = theme() === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', next); store('todo-theme', next); render();
     },
+    lamps: function (b) {
+      var g = b.closest('.garage'); if (!g) return;
+      g.classList.toggle('up'); S.lamps = g.classList.contains('up');
+      if (S.lamps) setTimeout(tickOnce, 140);
+    },
+    idea: function () { S.drafts['wk-reward'] = nextIdea(); render(); },
+    useidea: function () { S.drafts['wk-reward'] = weekIdea(); S.view = 'chores'; render(); window.scrollTo(0, 0); },
+    saveweek: function () {
+      var w = S.data.week; if (!w) return;
+      var t = parseInt(S.drafts['wk-target'] !== undefined ? S.drafts['wk-target'] : w.target, 10);
+      if (!(t >= 1 && t <= 100)) return toast('Pick a goal from 1 to 100.');
+      var r = (S.drafts['wk-reward'] !== undefined ? S.drafts['wk-reward'] : w.reward).trim();
+      api('PATCH', '/api/week', { week: w.week, target: t, reward: r })
+        .then(function () { clearDrafts('wk-'); markUsed(r); S.raw = ''; return loadState(); }).then(function () { toast('Goal saved'); }).catch(fail);
+    },
+    newidea: function () {
+      var t = (S.drafts['idea-new'] || '').trim(); if (!t) return;
+      api('POST', '/api/ideas', { text: t }).then(function () { clearDrafts('idea-'); S.raw = ''; return loadState(); }).then(function () { toast('Idea added'); }).catch(fail);
+    },
+    paid: function (b) {
+      api('PATCH', '/api/week', { week: b.dataset.week, closed: true }).then(function () { S.raw = ''; return loadState(); }).then(function () { toast('Marked as paid out'); }).catch(fail);
+    },
     gotochores: function () { S.view = 'chores'; render(); window.scrollTo(0, 0); },
     choreday: function (b) { var d = +b.dataset.v, i = S.choreDays.indexOf(d); if (i >= 0) S.choreDays.splice(i, 1); else S.choreDays.push(d); render(); },
     chorecheck: function (b) {
@@ -534,7 +692,7 @@
     },
     addchore: function () {
       var text = (S.drafts['chore-text'] || '').trim(); if (!text) return;
-      api('POST', '/api/chores', { text: text, person: S.drafts['chore-person'] || 'roman', days: S.choreDays })
+      api('POST', '/api/chores', { text: text, person: S.drafts['chore-person'] || 'roman', days: S.choreDays, day: today() })
         .then(function () { clearDrafts('chore-text'); S.choreDays = []; S.raw = ''; return loadState(); }).then(function () { toast('Chore added'); }).catch(fail);
     },
     delchore: function (b) {
@@ -562,13 +720,14 @@
     toggle: function (b) { var id = +b.closest('[data-id]').dataset.id; toggle(id, b.checked); },
     open: function (b) {
       var id = +b.closest('[data-id]').dataset.id, f = findItem(id); if (!f) return;
-      S.sheet = { id: id, text: f.it.text, store: f.it.store, shop: f.it.shop || '', priority: f.it.priority, due: f.it.due, sub: '', sec: f.sec.id, par: f.parent ? f.parent.id : '' }; render();
+      S.sheet = { id: id, text: f.it.text, store: f.it.store, shop: f.it.shop || '', priority: f.it.priority, due: f.it.due, link: f.it.link || '', sub: '', sec: f.sec.id, par: f.parent ? f.parent.id : '' }; render();
     },
     closesheet: function () { S.sheet = null; render(); },
     pri: function (b) { S.sheet.priority = b.dataset.v; render(); },
     savesheet: function () {
       var sh = S.sheet, f = findItem(sh.id);
       var body = { text: sh.text, store: sh.store, shop: sh.shop || '', priority: sh.priority, due: sh.due };
+      if (f && f.list.key === 'wish') body.link = sh.link || '';
       if (isParent() && f) {
         var curPar = f.parent ? f.parent.id : '';
         if (!f.parent && +sh.sec && +sh.sec !== f.sec.id) body.section_id = +sh.sec;
@@ -596,14 +755,14 @@
     add: function (b) {
       var sec = b.closest('[data-sec]'), sid = +sec.dataset.sec;
       var text = (S.drafts['add-' + sid] || '').trim(); if (!text || S.adding) return;
-      var st = S.drafts['st-' + sid] || '', pr = S.drafts['pr-' + sid] || 'normal', section = null;
+      var st = S.drafts['st-' + sid] || '', pr = S.drafts['pr-' + sid] || 'normal', ln = (S.drafts['ln-' + sid] || '').trim(), section = null;
       S.data.lists.forEach(function (l) { l.sections.forEach(function (x) { if (x.id === sid) section = x; }); });
       // Show it right away, dimmed, and let the server catch up.
-      var tmp = { id: 'tmp' + Date.now(), text: text, done: false, store: st, shop: '', priority: pr, due: '', created_by: S.me.id, kids: [], saving: true };
+      var tmp = { id: 'tmp' + Date.now(), text: text, done: false, store: st, shop: '', link: '', priority: pr, due: '', created_by: S.me.id, kids: [], saving: true };
       if (section) section.items.push(tmp);
-      clearDrafts('add-' + sid); clearDrafts('st-' + sid); clearDrafts('pr-' + sid);
+      clearDrafts('add-' + sid); clearDrafts('st-' + sid); clearDrafts('pr-' + sid); clearDrafts('ln-' + sid);
       S.adding = true; S.raw = ''; tick(); render();
-      api('POST', '/api/items', { section_id: sid, text: text, store: st, priority: pr })
+      api('POST', '/api/items', { section_id: sid, text: text, store: st, priority: pr, link: ln })
         .then(function () { return loadState(); })
         .catch(function (e) {
           if (section) section.items = section.items.filter(function (x) { return x !== tmp; });
@@ -754,6 +913,7 @@
   app.addEventListener('pointercancel', function () { endDrag(true); });
 
   app.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('a[href]')) return;
     var b = e.target.closest('[data-act]'); if (!b || !app.contains(b)) return;
     // Taps on text open the item, but a tap on a link-like control should not also toggle.
     if ((b.tagName === 'BUTTON' || b.type === 'checkbox') && !/^(add|shopadd|swipedel|deleteitem|closesheet|refresh|theme)$/.test(b.dataset.act)) tick();

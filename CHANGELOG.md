@@ -1,5 +1,14 @@
 # Changes
 
+## 1.2.0 (Oct 20, 2026)
+
+- Roman's Wish List, shared by Doug and Roman, with Birthday, Christmas and Anytime ideas sections. Any item can have a link. It shows as an Open link chip.
+- Home shows a countdown to Christmas and to Roman's birthday, with how many wish ideas are waiting for each.
+- Roman's week: a progress bar for his chores, Sunday to Saturday, with a goal marker (80% to start). Doug sets the goal percent and the reward. When Roman hits it the card says Earned, and Doug taps Paid out. Past weeks are listed.
+- Idea bank: about 55 fun things to do, picked by season. Need an idea? fills the reward box. Home shows an idea for the week for Doug. Doug can add his own ideas.
+- Garage on Home with a car that has flip up headlights. Tap it or tap Pop up!
+- Not in this version yet: photos in the garage, Roman adding ideas, removing custom ideas, excused days.
+
 ## 1.1.0 (Oct 20, 2026)
 
 - Swipe a row left to get a trash can. Tap it to delete, with Undo. Roman only gets it on items he added.

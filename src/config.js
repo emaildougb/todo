@@ -13,6 +13,7 @@ export const LISTS = [
   { key: 'work', name: 'Work', members: ['doug'] },
   { key: 'roman-doug', name: 'Roman and Dad', members: ['doug', 'roman'] },
   { key: 'roman', name: "Roman's To do", members: ['doug', 'roman'] },
+  { key: 'wish', name: "Roman's Wish List", members: ['doug', 'roman'] },
 ];
 
 export const DEFAULT_STORES = ['Harbor Freight', 'Home Depot', 'Amazon', 'Other'];
@@ -62,4 +63,5 @@ export const SEED = {
     },
   ],
   roman: [{ name: 'To do', items: [] }],
+  wish: [{ name: 'Birthday', items: [] }, { name: 'Christmas', items: [] }, { name: 'Anytime ideas', items: [] }],
 };
