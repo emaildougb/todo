@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.3.1';
+  var APP_VER = '1.3.2';
   var NEWS = [
+    { v: '1.3.2', d: 'Oct 20, 2026', notes: ['Recovery code: Dad makes one in Settings and saves it. If he forgets his PIN, Forgot my PIN on the sign in page uses the code to set a new one.'] },
     { v: '1.3.1', d: 'Oct 20, 2026', notes: ['Settings has an I forgot my current PIN option, so you can set a new PIN while signed in.'] },
     { v: '1.3.0', d: 'Oct 20, 2026', notes: ['Dad can tap View as Roman to see the app the way Roman sees it (look only), and can reset Roman\u2019s PIN from Settings. The garage car is gone for now.'] },
     { v: '1.2.0', d: 'Oct 20, 2026', notes: ["Roman's Wish List with links, a countdown to Christmas and his birthday, Roman's week with a percent goal and reward, a bank of weekly idea suggestions, and a garage with flip up headlights."] },
@@ -14,7 +15,7 @@
   var S = {
     me: null, users: [], data: null, raw: '', view: 'home', listKey: null, sheet: null,
     toast: null, drafts: {}, choreDays: [], editChore: 0, hideDone: false, newer: false, pop: null, loginUser: '', err: '', busy: false,
-    adding: false, pendingShop: [], shopTab: 'other', forgot: false, viewAs: '', realMe: null,
+    adding: false, pendingShop: [], shopTab: 'other', forgot: false, recover: false, newCode: '', viewAs: '', realMe: null,
   };
   var app = document.getElementById('app');
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -490,6 +491,8 @@
       '<div class="addrow"><button class="ghost" data-act="forgotpin">' + (S.forgot ? 'I remember it after all' : 'I forgot my current PIN') + '</button></div>' +
       (S.forgot ? '<p>You are signed in, so you can pick a new PIN without the old one.</p>' : '') + '</div>';
     if (isParent() && !S.viewAs) {
+      h += '<div class="card"><h3>Recovery code</h3><p>' + (S.data.recovery_set ? 'A recovery code is set. Making a new one replaces the old one.' : 'No recovery code yet.') + ' Save it in a note on your phone. If you forget your PIN, the sign in page lets you set a new one with this code.</p>' +
+        (S.newCode ? '<div class="codebox">' + esc(S.newCode) + '</div><p>Save this now. It is only shown once.</p><div class="addrow"><button class="ghost" data-act="copycode">Copy it</button><button class="ghost" data-act="donecode">I saved it</button></div>' : '<div class="addrow"><button class="ghost" data-act="makecode">' + (S.data.recovery_set ? 'Make a new code' : 'Make my recovery code') + '</button></div>') + '</div>';
       var kidp = (S.data.people || []).filter(function (x) { return x.role === 'kid'; })[0];
       if (kidp) h += '<div class="card"><h3>' + esc(kidp.name) + '</h3><p>See the app exactly the way ' + esc(kidp.name) + ' sees it. You can look but not change anything while you are in there.</p><div class="addrow"><button class="ghost" data-act="viewas" data-id="' + esc(kidp.id) + '">View as ' + esc(kidp.name) + '</button></div>' +
         '<p style="margin-top:14px">Reset his PIN (4 to 8 digits). This also clears any lockout.</p><div class="addrow"><input type="password" inputmode="numeric" data-draft="rst-pin" placeholder="New PIN for ' + esc(kidp.name) + '" autocomplete="off" style="flex:1"><button class="pri" data-act="resetpin" data-id="' + esc(kidp.id) + '">Reset PIN</button></div></div>';
@@ -549,9 +552,14 @@
   }
 
   function loginView() {
+    if (S.recover) {
+      return '<div class="login"><h1>Forgot my PIN</h1><div class="sub">' + (S.loginUser === 'roman' ? 'Ask Dad to reset it for you.' : 'Enter your recovery code and pick a new PIN.') + '</div>' +
+        (S.loginUser === 'roman' ? '' : '<input type="text" autocomplete="off" autocapitalize="characters" data-draft="rec-code" placeholder="Recovery code" style="margin-top:14px"><input type="password" inputmode="numeric" autocomplete="off" data-draft="rec-pin" placeholder="New PIN (4 to 8 digits)" enterkeyhint="go"><div class="err" id="err">' + esc(S.err) + '</div><button class="pri" data-act="recover">Set new PIN</button>') +
+        '<button class="ghost" data-act="backlogin" style="margin-top:12px">Back</button></div>';
+    }
     var h = '<div class="login"><h1>To Do</h1><div class="sub">Who is this?</div><div class="who">';
     S.users.forEach(function (u) { h += '<button class="' + (u.id === S.loginUser ? 'on' : '') + '" data-act="who" data-id="' + esc(u.id) + '">' + esc(u.name) + '</button>'; });
-    h += '</div><input type="password" inputmode="numeric" autocomplete="off" data-draft="login-pin" placeholder="PIN" enterkeyhint="go"><div class="err" id="err">' + esc(S.err) + '</div><button class="pri" data-act="login">Sign in</button></div>';
+    h += '</div><input type="password" inputmode="numeric" autocomplete="off" data-draft="login-pin" placeholder="PIN" enterkeyhint="go"><div class="err" id="err">' + esc(S.err) + '</div><button class="pri" data-act="login">Sign in</button><button class="ghost" data-act="forgotlogin" style="margin-top:12px">Forgot my PIN</button></div>';
     return h;
   }
 
@@ -710,6 +718,21 @@
         return loadState();
       }).catch(function (e) { S.err = e.message; delete S.drafts['login-pin']; render(); });
     },
+    forgotlogin: function () { S.recover = true; S.err = ''; render(); },
+    backlogin: function () { S.recover = false; S.err = ''; clearDrafts('rec-'); render(); },
+    recover: function () {
+      var uid = S.loginUser || 'doug';
+      api('POST', '/api/pin/recover', { user: uid, code: S.drafts['rec-code'] || '', pin: S.drafts['rec-pin'] || '' }).then(function (j) {
+        S.me = j.user; S.view = firstView(); S.recover = false; S.err = ''; clearDrafts('rec-'); S.raw = '';
+        return loadState();
+      }).catch(function (e) { S.err = e.message; delete S.drafts['rec-pin']; render(); });
+    },
+    makecode: function () { api('POST', '/api/recovery').then(function (j) { S.newCode = j.code; S.raw = ''; return loadState(); }).catch(fail); },
+    copycode: function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(S.newCode).then(function () { toast('Code copied'); }, function () { toast('Could not copy. Select it and copy by hand.'); });
+      else toast('Select the code and copy it by hand.');
+    },
+    donecode: function () { S.newCode = ''; render(); },
     signout: function () { api('POST', '/api/logout').then(function () { S.me = null; S.data = null; S.raw = ''; S.view = 'home'; render(); }); },
     refresh: function () {
       checkUpdate(function (newer) {

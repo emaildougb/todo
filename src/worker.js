@@ -53,6 +53,7 @@ function ensureSchema(env) {
         env.DB.prepare('CREATE TABLE IF NOT EXISTS attempts (user TEXT PRIMARY KEY, n INTEGER, until INTEGER)'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS chores (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, person TEXT, days TEXT DEFAULT \'\', deleted INTEGER DEFAULT 0)'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS chore_done (chore_id INTEGER, day TEXT, by TEXT, PRIMARY KEY (chore_id, day))'),
+        env.DB.prepare('CREATE TABLE IF NOT EXISTS recovery (user TEXT PRIMARY KEY, salt TEXT, hash TEXT)'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS week_goals (week TEXT PRIMARY KEY, target INTEGER, reward TEXT, closed INTEGER DEFAULT 0)'),
       ]);
       // New columns go in this list, never into the CREATE TABLE above, so updates never break existing data.
@@ -192,6 +193,40 @@ async function changePin(env, user, request) {
   const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
   await env.DB.prepare('INSERT OR REPLACE INTO pins (user, salt, hash) VALUES (?,?,?)').bind(user.id, salt, await pbkdf2(next, salt)).run();
   return json({ ok: true });
+}
+
+// A recovery code: Dad makes one in Settings and saves it. On the sign in page it sets a new PIN if he forgets it.
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const normCode = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+async function makeRecovery(env, user) {
+  if (!isParent(user)) return fail('Only a parent can make a recovery code.', 403);
+  const raw = [...crypto.getRandomValues(new Uint8Array(16))].map((n) => CODE_CHARS[n % 32]).join('');
+  const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
+  await env.DB.prepare('INSERT OR REPLACE INTO recovery (user, salt, hash) VALUES (?,?,?)').bind(user.id, salt, await pbkdf2(raw, salt)).run();
+  return json({ code: raw.match(/.{4}/g).join('-') });
+}
+
+async function recoverPin(env, request) {
+  const b = await request.json().catch(() => ({}));
+  const u = USERS.find((x) => x.id === b.user && x.role === 'parent');
+  if (!u) return fail('Recovery codes are for Dad. Ask Dad to reset the PIN.');
+  const key = 'rec:' + u.id;
+  const a = await env.DB.prepare('SELECT n, until FROM attempts WHERE user=?').bind(key).first();
+  if (a && a.until > Date.now()) return fail('Too many tries. Wait a few minutes and try again.', 429);
+  const next = String(b.pin || '');
+  if (!/^\d{4,8}$/.test(next)) return fail('Use 4 to 8 digits for the new PIN.');
+  const row = await env.DB.prepare('SELECT salt, hash FROM recovery WHERE user=?').bind(u.id).first();
+  const code = normCode(b.code);
+  if (!row || code.length !== 16 || (await pbkdf2(code, row.salt)) !== row.hash) {
+    const n = (a ? a.n : 0) + 1, locked = n >= 5;
+    await env.DB.prepare('INSERT OR REPLACE INTO attempts (user, n, until) VALUES (?,?,?)').bind(key, locked ? 0 : n, locked ? Date.now() + 10 * 60000 : 0).run();
+    return fail(locked ? 'Too many tries. Wait 10 minutes.' : 'That recovery code is not right.', 401);
+  }
+  const salt = b64u(crypto.getRandomValues(new Uint8Array(16)));
+  await env.DB.prepare('INSERT OR REPLACE INTO pins (user, salt, hash) VALUES (?,?,?)').bind(u.id, salt, await pbkdf2(next, salt)).run();
+  await env.DB.prepare('DELETE FROM attempts WHERE user IN (?, ?)').bind(key, u.id).run();
+  return json({ user: pub(u) }, 200, { 'Set-Cookie': sessionCookie(await makeToken(env, u.id), SESSION_DAYS * 86400) });
 }
 
 async function resetPin(env, user, request) {
@@ -717,8 +752,10 @@ async function route(request, env, url) {
   if (name === 'login' && method === 'POST') return login(env, request);
   if (name === 'logout' && method === 'POST') return json({ ok: true }, 200, { 'Set-Cookie': sessionCookie('', 0) });
 
+  if (name === 'pin' && parts[2] === 'recover' && method === 'POST') return recoverPin(env, request);
   let user = await userFromRequest(env, request);
   if (!user) return fail('Please sign in.', 401);
+  if (name === 'recovery' && method === 'POST') return makeRecovery(env, user);
 
   // Dad resets Roman's PIN. This also clears a lockout.
   if (name === 'pin' && parts[2] === 'reset' && method === 'POST') return resetPin(env, user, request);
@@ -741,6 +778,7 @@ async function route(request, env, url) {
     state.people = USERS.map((u) => ({ id: u.id, name: u.name, role: u.role }));
     state.week = await weekState(env, DAY_RE.test(d || '') ? d : new Date().toISOString().slice(0, 10));
     state.ideas_custom = isParent(user) ? await customIdeas(env) : [];
+    state.recovery_set = isParent(user) ? !!(await env.DB.prepare('SELECT 1 AS x FROM recovery WHERE user = ?').bind(user.id).first()) : false;
     return json(state);
   }
   if (name === 'chores' && ['GET', 'POST', 'PATCH', 'DELETE'].includes(method)) return chores(env, user, method, id, request, url);

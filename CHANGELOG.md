@@ -1,5 +1,9 @@
 # Changes
 
+## 1.3.2 (Oct 20, 2026)
+
+- Recovery code: Doug makes one in Settings and saves it. On the sign in page, Forgot my PIN takes the code and a new PIN, so he is never locked out for good. Five wrong codes lock it for 10 minutes.
+
 ## 1.3.1 (Oct 20, 2026)
 
 - Settings: I forgot my current PIN lets you set a new PIN while you are signed in, without the old one.

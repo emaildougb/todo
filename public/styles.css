@@ -241,3 +241,6 @@ h1{font-size:30px}
 .cdx{font-size:12px;color:var(--muted);min-height:16px}
 .vbar{position:sticky;top:0;z-index:20;background:#b8641c;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;font-weight:600;font-size:14px;border-radius:0 0 12px 12px}
 .vbar button{background:#fff;color:#7a3f0d;border:0;border-radius:99px;padding:6px 12px;font-weight:700;cursor:pointer}
+.codebox{font-family:ui-monospace,Menlo,monospace;font-size:20px;font-weight:700;letter-spacing:.5px;text-align:center;background:var(--soft);border:1px dashed var(--accent);border-radius:12px;padding:14px 8px;margin:10px 0;user-select:all;-webkit-user-select:all;word-break:break-all}
+.login input[data-draft="rec-code"]{font-size:18px;letter-spacing:.08em;text-transform:uppercase}
+.login .ghost{width:100%}
