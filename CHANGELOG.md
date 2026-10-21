@@ -1,5 +1,15 @@
 # Changes
 
+## 1.4.0 (Oct 20, 2026)
+
+- Car fund: a gauge from $0 to $2,000 (Doug can change the goal). Doug adds money or takes it out with a note, and sees recent entries. Roman sees the gauge and how much is left, read only.
+- Ask Dad: Roman types a question, idea or advice request on Home. Doug sees it as a From Roman card, replies with an emoji and a note, marks it done, or adds it to Roman and Dad.
+- Chore calendar on Doug's Chores screen: green confirmed, amber waiting on Doug, red missed. Tap a day to Confirm, Not done, I saw it done, or Undo.
+- Roman checking a chore now shows Waiting for Dad to confirm. Only confirmed chores count toward the weekly goal. Dad checking a chore is final.
+- Dad replies on any item in the wish list, Roman and Dad, and Roman's To do (emoji and note). Roman gets a New from Dad marker.
+- Roman can suggest weekly reward ideas.
+- Roman's side has its own brighter look. Doug's side is unchanged.
+
 ## 1.3.2 (Oct 20, 2026)
 
 - Recovery code: Doug makes one in Settings and saves it. On the sign in page, Forgot my PIN takes the code and a new PIN, so he is never locked out for good. Five wrong codes lock it for 10 minutes.

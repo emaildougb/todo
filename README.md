@@ -18,6 +18,7 @@ A shared checklist for Doug and Roman. Each person signs in with their own PIN o
 - Roman's week: Doug sets a percent goal and a reward. The card on Home and Chores tracks it Sunday to Saturday, and Doug taps Paid out. A bank of weekly ideas helps pick rewards.
 - Home also has a Christmas and birthday countdown.
 - Doug can tap View as Roman in Settings to see exactly what Roman sees (look only), and can reset Roman's PIN there. Doug can also make a recovery code in Settings. If he forgets his PIN, Forgot my PIN on the sign in page uses that code to set a new one.
+- Car fund gauge, Ask Dad, a chore calendar where Dad confirms what Roman checked off, Dad replies on items, and a brighter look for Roman (1.4.0).
 - Roman's phone opens on Chores. He sees Roman and Dad and Roman's To do.
 
 ## Files

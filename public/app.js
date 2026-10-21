@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.3.2';
+  var APP_VER = '1.4.0';
   var NEWS = [
+    { v: '1.4.0', d: 'Oct 20, 2026', notes: ['Car fund gauge, Ask Dad, a chore calendar where Roman says he did it and Dad confirms, Dad replies on any item, Roman can suggest weekly ideas, and a bolder look for Roman.'] },
     { v: '1.3.2', d: 'Oct 20, 2026', notes: ['Recovery code: Dad makes one in Settings and saves it. If he forgets his PIN, Forgot my PIN on the sign in page uses the code to set a new one.'] },
     { v: '1.3.1', d: 'Oct 20, 2026', notes: ['Settings has an I forgot my current PIN option, so you can set a new PIN while signed in.'] },
     { v: '1.3.0', d: 'Oct 20, 2026', notes: ['Dad can tap View as Roman to see the app the way Roman sees it (look only), and can reset Roman\u2019s PIN from Settings. The garage car is gone for now.'] },
@@ -15,7 +16,7 @@
   var S = {
     me: null, users: [], data: null, raw: '', view: 'home', listKey: null, sheet: null,
     toast: null, drafts: {}, choreDays: [], editChore: 0, hideDone: false, newer: false, pop: null, loginUser: '', err: '', busy: false,
-    adding: false, pendingShop: [], shopTab: 'other', forgot: false, recover: false, newCode: '', viewAs: '', realMe: null,
+    adding: false, pendingShop: [], shopTab: 'other', forgot: false, recover: false, cal: null, calRaw: '', askEmoji: {}, calMonth: '', calSel: '', newCode: '', viewAs: '', realMe: null,
   };
   var app = document.getElementById('app');
   var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -49,8 +50,20 @@
     return api('GET', '/api/state?d=' + today()).then(function (j) {
       var raw = JSON.stringify(j);
       if (raw !== S.raw) { S.raw = raw; S.data = j; if (!quiet || canRedraw()) render(); }
+      return loadCal();
     });
   }
+  function loadCal() {
+    if (!S.me || S.me.role !== 'parent' || S.viewAs || S.view !== 'chores') return Promise.resolve();
+    if (!S.calMonth) S.calMonth = today().slice(0, 7);
+    return api('GET', '/api/chorecal?m=' + S.calMonth + '&d=' + today()).then(function (j) {
+      var raw = JSON.stringify(j);
+      if (raw !== S.calRaw) { S.calRaw = raw; S.cal = j; if (canRedraw()) render(); }
+    }).catch(function () {});
+  }
+  function reloadAll() { S.raw = ''; S.calRaw = ''; return loadState(); }
+  function isKid() { return S.me && S.me.role === 'kid'; }
+  function money(n) { n = Number(n) || 0; return '$' + n.toLocaleString('en-US', { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 }); }
   function canRedraw() {
     var a = document.activeElement;
     return !drag && !S.sheet && !(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName));
@@ -119,10 +132,11 @@
     settings: '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg>',
   };
 
+  var KIDICO = { home: '\uD83C\uDFE0', lists: '\uD83D\uDCDD', chores: '\u2705', shop: '\uD83D\uDED2', settings: '\u2699\uFE0F' };
   function theme() { var t = document.documentElement.getAttribute('data-theme'); return t || (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); }
   function top(title, sub) {
     return '<div class="top"><div><h1>' + esc(title) + '</h1><div class="sub">' + esc(sub || '') + '</div></div>' +
-      '<div class="topbtns"><button class="themebtn" data-act="theme" aria-label="Switch light or dark">' + (theme() === 'dark' ? '\u2600' : '\u263E') + '</button><button class="refresh' + (S.newer ? ' new' : '') + '" data-act="refresh">' + (S.newer ? '↻ Update ready' : '↻ Refresh') + '</button></div></div>';
+      '<div class="topbtns">' + (isKid() ? '' : '<button class="themebtn" data-act="theme" aria-label="Switch light or dark">' + (theme() === 'dark' ? '\u2600' : '\u263E') + '</button>') + '<button class="refresh' + (S.newer ? ' new' : '') + '" data-act="refresh">' + (S.newer ? '↻ Update ready' : '↻ Refresh') + '</button></div></div>';
   }
 
   function options(stores, current, blankLabel) {
@@ -138,6 +152,7 @@
     if (it.store) h += '<span class="chip store">' + esc(it.store) + '</span>';
     if (it.priority === 'high') h += '<span class="chip hi">High</span>';
     if (it.due) h += '<span class="chip' + (it.due < today() && !it.done ? ' late' : '') + '">' + fmtDue(it.due) + '</span>';
+    if (it.reply_emoji || it.reply_note) h += '<span class="chip dad">Dad ' + esc(it.reply_emoji) + ' ' + esc(it.reply_note) + '</span>';
     if (it.link) h += '<a class="chip linkchip" href="' + esc(it.link) + '" target="_blank" rel="noopener noreferrer">Open link</a>';
     return h ? '<div class="meta">' + h + '</div>' : '';
   }
@@ -236,7 +251,7 @@
     var lists = S.data.lists, open = 0;
     lists.forEach(function (l) { var s = stats(l); open += s[1] - s[0]; });
     var shop = shopRows().filter(function (r) { return !r.it.done; }).length;
-    var h = top(greeting() + ', ' + S.me.name, dueLine(open)) + weekCardHtml() + ideaLineHtml() + countdownHtml();
+    var h = top(greeting() + ', ' + S.me.name, dueLine(open)) + dadChipHtml() + askCardHtml() + weekCardHtml() + fundCardHtml() + ideaLineHtml() + countdownHtml();
     lists.forEach(function (l) {
       var s = stats(l), pct = s[1] ? Math.round(s[0] / s[1] * 100) : 0, next = upNext(l), mine = l.key === 'personal' || l.key === 'work';
       h += '<div class="homecard' + (mine ? ' big' : '') + '"><button class="homehead" data-act="gotolist" data-key="' + esc(l.key) + '"><span class="name">' + esc(l.name) + '</span>' +
@@ -299,11 +314,12 @@
     ['Cozy fire and a movie', 'f', 0],
   ];
   var SEASON_OF = ['w', 'w', 'p', 'p', 'p', 'u', 'u', 'u', 'f', 'f', 'f', 'w'];
-  function allIdeas() { return IDEAS.map(function (x) { return x[0]; }).concat((S.data && S.data.ideas_custom) || []); }
+  function romanIdeas() { return (S.data && S.data.ideas_roman) || []; }
+  function allIdeas() { return IDEAS.map(function (x) { return x[0]; }).concat((S.data && S.data.ideas_custom) || []).concat(romanIdeas()); }
   function ideaPool() {
     var ssn = SEASON_OF[new Date().getMonth()];
     var base = IDEAS.filter(function (x) { return x[1] === 'a' || x[1] === ssn; }).map(function (x) { return x[0]; });
-    return base.concat((S.data && S.data.ideas_custom) || []);
+    return base.concat((S.data && S.data.ideas_custom) || []).concat(romanIdeas());
   }
   function usedIdeas() { try { var a = JSON.parse(store('todo-ideas-used') || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
   function markUsed(text) {
@@ -329,7 +345,7 @@
     var ed = isParent(), pct = Math.min(100, w.pct);
     var h = '<div class="weekcard' + (w.earned ? ' earned' : '') + '"><div class="wk-head"><span class="name">' + esc(w.name) + '\u2019s week</span><span class="num">' + fmtDue(w.week) + ' to ' + fmtDue(plusDays(w.week, 6)) + '</span></div>' +
       '<div class="goalbar"><div style="width:' + pct + '%"></div><i style="left:' + w.target + '%" title="Goal"></i></div>' +
-      '<div class="goalline"><b>' + w.pct + '%</b> so far (' + w.done + ' of ' + w.total + ' chores). Goal: ' + w.target + '%.</div>';
+      '<div class="goalline"><b>' + w.pct + '%</b> so far (' + w.done + ' of ' + w.total + ' chores). Goal: ' + w.target + '%.' + (w.waiting ? ' <span class="waitnote">' + w.waiting + ' waiting for ' + (ed ? 'you' : 'Dad') + ' to confirm.</span>' : '') + '</div>';
     if (w.reward) h += '<div class="reward">Reward: <b>' + esc(w.reward) + '</b></div>';
     else h += '<div class="reward muted">' + (ed ? 'No reward picked yet.' : 'Dad has not picked a reward yet.') + '</div>';
     if (w.earned) h += w.closed ? '<div class="earnedtag paid">Earned and paid out</div>' : '<div class="earnedtag">Earned!' + (ed ? ' <button class="ghost" data-act="paid" data-week="' + w.week + '">Paid out</button>' : '') + '</div>';
@@ -340,6 +356,9 @@
         '<label>Reward (money, a gift, or time with Dad)</label><input type="text" data-draft="wk-reward" value="' + esc(w.reward) + '" placeholder="What does Roman earn?" autocomplete="off">' +
         '<div class="addrow"><button class="ghost" data-act="idea">Need an idea?</button><button class="pri" data-act="saveweek">Save</button></div>' +
         '<label>Add your own idea</label><div class="addrow"><input type="text" data-draft="idea-new" placeholder="Something fun to do" autocomplete="off" style="flex:1"><button class="ghost" data-act="newidea">Add</button></div></details>';
+    }
+    if (!ed) {
+      h += '<details class="goaledit"><summary>Suggest an idea for a reward</summary><div class="addrow"><input type="text" data-draft="idea-new" placeholder="Something fun to do together" autocomplete="off" maxlength="120" style="flex:1"><button class="ghost" data-act="newidea">Send</button></div></details>';
     }
     if (w.history.length) {
       h += '<div class="wkhist"><h4>Past weeks</h4>';
@@ -379,6 +398,113 @@
       one(bd, 'until ' + (kidView ? 'your' : nm + '\u2019s') + ' birthday', 'Turns ' + (bd.year - 2014), wishCount('birthday')) + '</div>';
   }
 
+
+  // ---------- car fund gauge ----------
+  function gaugeSvg(saved, goal) {
+    var pct = goal > 0 ? Math.max(0, Math.min(1, saved / goal)) : 0, a = Math.PI * (1 - pct);
+    var nx = (100 + 66 * Math.cos(a)).toFixed(1), ny = (100 - 66 * Math.sin(a)).toFixed(1);
+    var ticks = '';
+    for (var i = 0; i <= 4; i++) {
+      var t = Math.PI * (1 - i / 4), c = Math.cos(t), sn = Math.sin(t);
+      ticks += '<line x1="' + (100 + 70 * c).toFixed(1) + '" y1="' + (100 - 70 * sn).toFixed(1) + '" x2="' + (100 + 80 * c).toFixed(1) + '" y2="' + (100 - 80 * sn).toFixed(1) + '" class="gt"/>';
+    }
+    var arcLen = Math.PI * 75, fill = (arcLen * pct).toFixed(1);
+    return '<svg class="gauge" viewBox="0 0 200 122" role="img" aria-label="' + money(saved) + ' saved of ' + money(goal) + '">' +
+      '<defs><linearGradient id="kg" x1="0" x2="1"><stop offset="0" stop-color="#17c9ff"/><stop offset="1" stop-color="#2ee66b"/></linearGradient></defs>' +
+      '<path d="M 25 100 A 75 75 0 0 1 175 100" class="gtrack"/>' +
+      '<path d="M 25 100 A 75 75 0 0 1 175 100" class="gfill" stroke-dasharray="' + fill + ' ' + arcLen.toFixed(1) + '"/>' + ticks +
+      '<line x1="100" y1="100" x2="' + nx + '" y2="' + ny + '" class="gneedle"/><circle cx="100" cy="100" r="6" class="ghub"/>' +
+      '<text x="18" y="116" class="glab">$0</text><text x="182" y="116" class="glab" text-anchor="end">' + money(goal) + '</text></svg>';
+  }
+  function fundCardHtml() {
+    var f = S.data.fund; if (!f) return '';
+    var ed = isParent(), left = Math.max(0, f.goal - f.saved);
+    var h = '<div class="fundcard"><div class="wk-head"><span class="name">Car fund</span><span class="num">Goal ' + money(f.goal) + '</span></div>' + gaugeSvg(f.saved, f.goal) +
+      '<div class="fundnum"><b>' + money(f.saved) + '</b> saved</div><div class="fundleft">' + (left ? money(left) + ' to go' : 'Goal reached!') + '</div>';
+    if (ed) {
+      var open = Object.keys(S.drafts).some(function (k) { return k.indexOf('fund-goal') === 0; });
+      h += '<div class="fundin"><input type="number" inputmode="decimal" min="0" data-draft="fund-amt" placeholder="Amount $" autocomplete="off"><input type="text" data-draft="fund-note" placeholder="What for (optional)" autocomplete="off" maxlength="60"></div>' +
+        '<div class="addrow"><button class="ghost" data-act="fundtake">Take out</button><button class="pri" data-act="fundadd">Add money</button></div>';
+      if (f.log && f.log.length) {
+        h += '<div class="fundlog"><h4>Recent</h4>';
+        f.log.forEach(function (x) {
+          h += '<div class="flrow"><span class="' + (x.amount < 0 ? 'neg' : 'pos') + '">' + (x.amount < 0 ? '−' : '+') + money(Math.abs(x.amount)) + '</span><span class="fln">' + esc(x.note || '') + '</span><span class="fld">' + fmtDue(x.day) + '</span>' +
+            '<button class="icon" data-act="fundel" data-id="' + x.id + '" aria-label="Delete entry">&times;</button></div>';
+        });
+        h += '</div>';
+      }
+      h += '<details class="goaledit"' + (open ? ' open' : '') + '><summary>Change the goal</summary><div class="addrow"><input type="number" inputmode="numeric" data-draft="fund-goal" placeholder="' + f.goal + '" style="flex:1"><button class="ghost" data-act="fundgoal">Save goal</button></div></details>';
+    }
+    return h + '</div>';
+  }
+
+  // ---------- Ask Dad ----------
+  function askCardHtml() {
+    var asks = S.data.asks || [], h;
+    if (isParent()) {
+      var open = asks.filter(function (a) { return a.status === 'open'; });
+      if (!open.length) return '';
+      h = '<div class="asks"><div class="wk-head"><span class="name">From Roman</span><span class="num">' + open.length + ' open</span></div>';
+      open.forEach(function (a) {
+        var cur = S.askEmoji[a.id] !== undefined ? S.askEmoji[a.id] : (a.reply_emoji || '');
+        h += '<div class="ask" data-ask="' + a.id + '"><div class="asktext">' + esc(a.text) + '</div><div class="reacts">' +
+          REACTS.map(function (r) { return '<button class="' + (cur === r[0] ? 'on' : '') + '" data-act="askemoji" data-v="' + r[0] + '" title="' + r[1] + '" aria-label="' + r[1] + '">' + r[0] + '</button>'; }).join('') +
+          '</div><input type="text" data-draft="an-' + a.id + '" placeholder="Short note (optional)" maxlength="140" autocomplete="off">' +
+          '<div class="addrow"><button class="ghost" data-act="askdone">Done</button><button class="ghost" data-act="asktolist">Add to Roman and Dad</button><button class="pri" data-act="askreply">Reply</button></div></div>';
+      });
+      return h + '</div>';
+    }
+    h = '<div class="asks"><div class="wk-head"><span class="name">Ask Dad</span></div><div class="hint">A question, an idea, or something you want advice on.</div>' +
+      '<div class="addrow"><input type="text" data-draft="ask-text" placeholder="Type it here" maxlength="300" autocomplete="off" enterkeyhint="send" style="flex:1"><button class="pri" data-act="asksend">Send</button></div>';
+    asks.slice(0, 5).forEach(function (a) {
+      h += '<div class="ask mine"><div class="asktext">' + esc(a.text) + '</div>' +
+        (a.reply_emoji || a.reply_note ? '<div class="dadbubble">Dad: ' + esc(a.reply_emoji) + ' ' + esc(a.reply_note) + '</div>' : '<div class="hint">Waiting for Dad</div>') + '</div>';
+    });
+    return h + '</div>';
+  }
+  function dadMax() {
+    var m = 0;
+    (S.data.asks || []).forEach(function (a) { if (a.reply_ts > m) m = a.reply_ts; });
+    S.data.lists.forEach(function (l) { l.sections.forEach(function (sc) { sc.items.forEach(function (it) { if (it.reply_ts > m) m = it.reply_ts; }); }); });
+    return m;
+  }
+  function dadChipHtml() {
+    if (!isKid() || S.viewAs) return '';
+    var m = dadMax(), seen = +(store('todo-seen-dad') || 0);
+    if (!m || m <= seen) return '';
+    return '<button class="dadnew" data-act="dadseen"><span>💬 New from Dad</span><i>Got it</i></button>';
+  }
+
+  // ---------- chore calendar (Dad) ----------
+  function calHtml() {
+    if (!isParent() || S.viewAs) return '';
+    if (!S.calMonth) S.calMonth = today().slice(0, 7);
+    var y = +S.calMonth.slice(0, 4), m = +S.calMonth.slice(5, 7), first = new Date(y, m - 1, 1).getDay(), n = new Date(y, m, 0).getDate();
+    var days = (S.cal && S.cal.month === S.calMonth) ? S.cal.days : {};
+    var h = '<div class="cal"><div class="calhead"><button class="ghost" data-act="calmove" data-v="-1" aria-label="Last month">&lsaquo;</button><span class="name">' + MONTHS[m - 1] + ' ' + y + '</span><button class="ghost" data-act="calmove" data-v="1" aria-label="Next month">&rsaquo;</button></div>' +
+      '<div class="calgrid">' + DAYS.map(function (d) { return '<span class="dow">' + d.charAt(0) + '</span>'; }).join('');
+    for (var i = 0; i < first; i++) h += '<span></span>';
+    for (var d = 1; d <= n; d++) {
+      var key = S.calMonth + '-' + String(d).padStart(2, '0'), st = days[key] ? days[key].state : '';
+      h += '<button class="cday' + (key === today() ? ' now' : '') + (key === S.calSel ? ' sel' : '') + '" data-act="calday" data-v="' + key + '"><span>' + d + '</span>' + (st ? '<i class="dot ' + st + '"></i>' : '') + '</button>';
+    }
+    h += '</div><div class="callegend"><span><i class="dot ok"></i>Confirmed</span><span><i class="dot wait"></i>Waiting on you</span><span><i class="dot miss"></i>Missed</span></div>';
+    if (S.calSel && days[S.calSel]) {
+      h += '<div class="calsel"><h4>' + fmtDue(S.calSel) + '</h4>';
+      if (!days[S.calSel].items.length) h += '<div class="hint">No chores that day.</div>';
+      days[S.calSel].items.forEach(function (c) {
+        var lab = { ok: 'Confirmed', wait: 'Roman says done', miss: 'Missed', todo: 'Not yet' }[c.state] || '';
+        h += '<div class="calrow" data-chore="' + c.id + '" data-day="' + S.calSel + '"><span class="calt">' + esc(c.text) + '<em class="' + c.state + '">' + lab + '</em></span><span class="calbtns">';
+        if (c.state === 'wait') h += '<button class="pri" data-act="confirm" data-ok="1">Confirm</button><button class="ghost" data-act="confirm" data-ok="0">Not done</button>';
+        else if (c.state === 'ok') h += '<button class="ghost" data-act="confirm" data-ok="0">Undo</button>';
+        else h += '<button class="ghost" data-act="confirm" data-ok="1">I saw it done</button>';
+        h += '</span></div>';
+      });
+      h += '</div>';
+    }
+    return h + '</div>';
+  }
+
   // ---------- chores ----------
   var DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   function dayName(d) { return DAYS[new Date(d + 'T12:00:00').getDay()]; }
@@ -387,13 +513,15 @@
   function choreRows() { return (S.data.chores || []).filter(function (c) { return c.today || c.missed; }); }
   function choreOpen() { return choreRows().filter(function (c) { return !(c.today && c.done) && !(!c.today && c.missed === ''); }).length; }
   function choreLine(c) {
-    var late = c.missed && !c.done;
+    var late = c.missed && !c.done, wait = c.today && c.waiting;
     return '<div class="item' + (c.done ? ' done' : '') + '" data-chore="' + c.id + '"><input type="checkbox" data-act="chorecheck" aria-label="Done"' + (c.done ? ' checked' : '') + '>' +
       '<div class="body"><span class="t">' + esc(c.text) + '</span>' +
-      (late && c.today ? '<div class="meta"><span class="chip late">Missed since ' + dayName(c.missed) + '</span></div>' : '') + '</div></div>';
+      (late && c.today ? '<div class="meta"><span class="chip late">Missed since ' + dayName(c.missed) + '</span></div>' : '') +
+      (wait ? '<div class="meta"><span class="chip waitchip">' + (isParent() ? 'Roman says done' : 'Waiting for Dad to confirm') + '</span>' + (isParent() ? '<button class="mini" data-act="confirm" data-ok="1" data-day="' + today() + '">Confirm</button><button class="mini ghost" data-act="confirm" data-ok="0" data-day="' + today() + '">Not done</button>' : '') + '</div>' : '') +
+      '</div></div>';
   }
   function choresView() {
-    var h = top('Chores', 'Today, ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getDate()) + weekCardHtml();
+    var h = top('Chores', 'Today, ' + MONTHS[new Date().getMonth()] + ' ' + new Date().getDate()) + weekCardHtml() + calHtml();
     var rows = (S.data.chores || []).filter(function (c) { return c.today; });
     var by = {};
     rows.forEach(function (c) { (by[c.person] = by[c.person] || []).push(c); });
@@ -510,6 +638,8 @@
     return h + '</ul></div>';
   }
 
+  var REACTS = [['\uD83D\uDC4D', 'Yes'], ['\uD83E\uDD14', 'Talk about it'], ['\uD83D\uDCB0', 'Save up first'], ['\u23F3', 'Not yet'], ['\u274C', 'No']];
+  var SHARED = ['roman-doug', 'roman', 'wish'];
   function sheetHtml() {
     if (!S.sheet) return '';
     var f = findItem(S.sheet.id);
@@ -545,6 +675,12 @@
         h += '</select>';
       }
     }
+    if (isParent() && SHARED.indexOf(f.list.key) >= 0) {
+      h += '<label>Reply to Roman</label><div class="reacts">' + REACTS.map(function (r) { return '<button class="' + (sh.remoji === r[0] ? 'on' : '') + '" data-act="rpick" data-v="' + r[0] + '" title="' + r[1] + '" aria-label="' + r[1] + '">' + r[0] + '</button>'; }).join('') + '</div>' +
+        '<input type="text" data-sheet="rnote" value="' + esc(sh.rnote || '') + '" placeholder="Short note (optional)" maxlength="140">';
+    } else if (it.reply_emoji || it.reply_note) {
+      h += '<label>From Dad</label><div class="dadbubble">' + esc(it.reply_emoji) + ' ' + esc(it.reply_note) + '</div>';
+    }
     if (ed) h += '<div class="seg two" style="margin-top:12px"><button data-act="sheettop">Move to top</button><button data-act="sheetbottom">Send to bottom</button></div>';
     h += '<div class="btns">' + (ed ? '<button class="ghost danger" data-act="deleteitem">Delete</button>' : '') +
       '<button class="ghost" data-act="closesheet">' + (ed ? 'Cancel' : 'Close') + '</button>' + (ed ? '<button class="pri" data-act="savesheet">Save</button>' : '') + '</div></div>';
@@ -566,12 +702,13 @@
   // ---------- drawing ----------
   function render() {
     var keep = {};
+    document.documentElement.toggleAttribute('data-kid', !!(S.me && S.data && S.me.role === 'kid'));
     if (!S.me || !S.data) {
       app.innerHTML = loginView();
     } else {
       var views = { home: homeView, lists: listsView, chores: choresView, shop: shopView, settings: settingsView };
       var body = (views[S.view] || homeView)();
-      var tab = function (key, label) { var bn = badgeFor(key); return '<button class="' + (S.view === key ? 'on' : '') + '" data-act="tab" data-v="' + key + '"><span class="ico">' + ICONS[key] + (bn ? '<i class="badge' + (key === 'chores' ? ' red' : '') + '">' + (bn > 99 ? '99+' : bn) + '</i>' : '') + '</span><span>' + label + '</span></button>'; };
+      var tab = function (key, label) { var bn = badgeFor(key); return '<button class="' + (S.view === key ? 'on' : '') + '" data-act="tab" data-v="' + key + '"><span class="ico">' + (isKid() ? '<span class="emo">' + KIDICO[key] + '</span>' : ICONS[key]) + (bn ? '<i class="badge' + (key === 'chores' ? ' red' : '') + '">' + (bn > 99 ? '99+' : bn) + '</i>' : '') + '</span><span>' + label + '</span></button>'; };
       var tabs = S.me.role === 'kid'
         ? tab('chores', 'Chores') + tab('lists', 'Lists') + tab('shop', 'Shopping') + tab('home', 'Home') + tab('settings', 'Settings')
         : tab('home', 'Home') + tab('lists', 'Lists') + tab('chores', 'Chores') + tab('shop', 'Shopping') + tab('settings', 'Settings');
@@ -637,6 +774,11 @@
       toast('Deleted', function () { api('PATCH', '/api/items/' + id, { deleted: false }).then(function () { S.raw = ''; return loadState(); }).catch(fail); });
     }).catch(function (e) { fail(e); loadState(); });
   }
+  function fundPost(kind) {
+    var amt = parseFloat(S.drafts['fund-amt']); if (!(amt > 0)) return toast('Type an amount first.');
+    api('POST', '/api/fund', { amount: amt, kind: kind, note: (S.drafts['fund-note'] || '').trim(), day: today() })
+      .then(function () { clearDrafts('fund-amt'); clearDrafts('fund-note'); return reloadAll(); }).then(function () { toast(kind === 'add' ? 'Added to the car fund' : 'Taken out'); }).catch(fail);
+  }
   function clearDrafts(prefix) { Object.keys(S.drafts).forEach(function (k) { if (k.indexOf(prefix) === 0) delete S.drafts[k]; }); }
 
   // ---------- actions ----------
@@ -653,7 +795,7 @@
   }
 
   var actions = {
-    tab: function (b) { S.view = b.dataset.v; render(); window.scrollTo(0, 0); },
+    tab: function (b) { S.view = b.dataset.v; render(); window.scrollTo(0, 0); if (S.view === 'chores') { S.calRaw = ''; loadCal(); } },
     gotolist: function (b) { S.listKey = b.dataset.key; S.view = 'lists'; render(); window.scrollTo(0, 0); },
     theme: function () {
       var next = theme() === 'dark' ? 'light' : 'dark';
@@ -690,7 +832,38 @@
     paid: function (b) {
       api('PATCH', '/api/week', { week: b.dataset.week, closed: true }).then(function () { S.raw = ''; return loadState(); }).then(function () { toast('Marked as paid out'); }).catch(fail);
     },
-    gotochores: function () { S.view = 'chores'; render(); window.scrollTo(0, 0); },
+    fundadd: function () { fundPost('add'); },
+    fundtake: function () { fundPost('take'); },
+    fundel: function (b) { api('DELETE', '/api/fund/' + b.dataset.id).then(function () { return reloadAll(); }).catch(fail); },
+    fundgoal: function () {
+      var g = parseFloat(S.drafts['fund-goal']); if (!(g > 0)) return toast('Type a goal amount.');
+      api('PATCH', '/api/fund', { goal: g }).then(function () { clearDrafts('fund-goal'); return reloadAll(); }).then(function () { toast('Goal saved'); }).catch(fail);
+    },
+    asksend: function () {
+      var t = (S.drafts['ask-text'] || '').trim(); if (!t) return;
+      api('POST', '/api/asks', { text: t }).then(function () { clearDrafts('ask-'); return reloadAll(); }).then(function () { toast('Sent to Dad'); }).catch(fail);
+    },
+    askemoji: function (b) { var id = +b.closest('[data-ask]').dataset.ask, cur = S.askEmoji[id]; S.askEmoji[id] = cur === b.dataset.v ? '' : b.dataset.v; render(); },
+    askreply: function (b) {
+      var id = +b.closest('[data-ask]').dataset.ask, a = (S.data.asks || []).filter(function (x) { return x.id === id; })[0] || {};
+      var em = S.askEmoji[id] !== undefined ? S.askEmoji[id] : (a.reply_emoji || ''), note = (S.drafts['an-' + id] !== undefined ? S.drafts['an-' + id] : (a.reply_note || '')).trim();
+      if (!em && !note) return toast('Pick a reply or type a note.');
+      api('PATCH', '/api/asks/' + id, { reply_emoji: em, reply_note: note }).then(function () { delete S.askEmoji[id]; clearDrafts('an-' + id); return reloadAll(); }).then(function () { toast('Replied'); }).catch(fail);
+    },
+    askdone: function (b) { var id = +b.closest('[data-ask]').dataset.ask; api('PATCH', '/api/asks/' + id, { status: 'done' }).then(function () { return reloadAll(); }).catch(fail); },
+    asktolist: function (b) { var id = +b.closest('[data-ask]').dataset.ask; api('POST', '/api/asks/' + id + '/tolist', {}).then(function () { return reloadAll(); }).then(function () { toast('Added to Roman and Dad'); }).catch(fail); },
+    dadseen: function () { store('todo-seen-dad', String(dadMax())); render(); },
+    calmove: function (b) {
+      var y = +S.calMonth.slice(0, 4), m = +S.calMonth.slice(5, 7) + (+b.dataset.v);
+      if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
+      S.calMonth = y + '-' + String(m).padStart(2, '0'); S.calSel = ''; S.calRaw = ''; render(); loadCal();
+    },
+    calday: function (b) { S.calSel = S.calSel === b.dataset.v ? '' : b.dataset.v; render(); },
+    confirm: function (b) {
+      var row = b.closest('[data-chore]'), id = +row.dataset.chore, day = b.dataset.day || row.dataset.day || today();
+      api('POST', '/api/chores/' + id + '/confirm', { day: day, ok: b.dataset.ok === '1' }).then(function () { return reloadAll(); }).then(function () { return loadCal(); }).catch(fail);
+    },
+    gotochores: function () { S.view = 'chores'; render(); window.scrollTo(0, 0); S.calRaw = ''; loadCal(); },
     choreday: function (b) { var d = +b.dataset.v, i = S.choreDays.indexOf(d); if (i >= 0) S.choreDays.splice(i, 1); else S.choreDays.push(d); render(); },
     chorecheck: function (b) {
       var row = b.closest('[data-chore]'), id = +row.dataset.chore, day = row.dataset.day || today(), v = b.checked;
@@ -743,14 +916,16 @@
     toggle: function (b) { var id = +b.closest('[data-id]').dataset.id; toggle(id, b.checked); },
     open: function (b) {
       var id = +b.closest('[data-id]').dataset.id, f = findItem(id); if (!f) return;
-      S.sheet = { id: id, text: f.it.text, store: f.it.store, shop: f.it.shop || '', priority: f.it.priority, due: f.it.due, link: f.it.link || '', sub: '', sec: f.sec.id, par: f.parent ? f.parent.id : '' }; render();
+      S.sheet = { id: id, text: f.it.text, store: f.it.store, shop: f.it.shop || '', priority: f.it.priority, due: f.it.due, link: f.it.link || '', remoji: f.it.reply_emoji || '', rnote: f.it.reply_note || '', sub: '', sec: f.sec.id, par: f.parent ? f.parent.id : '' }; render();
     },
     closesheet: function () { S.sheet = null; render(); },
+    rpick: function (b) { S.sheet.remoji = S.sheet.remoji === b.dataset.v ? '' : b.dataset.v; render(); },
     pri: function (b) { S.sheet.priority = b.dataset.v; render(); },
     savesheet: function () {
       var sh = S.sheet, f = findItem(sh.id);
       var body = { text: sh.text, store: sh.store, shop: sh.shop || '', priority: sh.priority, due: sh.due };
       if (f && f.list.key === 'wish') body.link = sh.link || '';
+      if (f && isParent() && SHARED.indexOf(f.list.key) >= 0) { body.reply_emoji = sh.remoji || ''; body.reply_note = sh.rnote || ''; }
       if (isParent() && f) {
         var curPar = f.parent ? f.parent.id : '';
         if (!f.parent && +sh.sec && +sh.sec !== f.sec.id) body.section_id = +sh.sec;

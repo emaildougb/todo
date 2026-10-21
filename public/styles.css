@@ -244,3 +244,91 @@ h1{font-size:30px}
 .codebox{font-family:ui-monospace,Menlo,monospace;font-size:20px;font-weight:700;letter-spacing:.5px;text-align:center;background:var(--soft);border:1px dashed var(--accent);border-radius:12px;padding:14px 8px;margin:10px 0;user-select:all;-webkit-user-select:all;word-break:break-all}
 .login input[data-draft="rec-code"]{font-size:18px;letter-spacing:.08em;text-transform:uppercase}
 .login .ghost{width:100%}
+
+/* ---- 1.4.0: car fund, Ask Dad, calendar, replies ---- */
+.fundcard,.asks,.cal{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:12px}
+.gauge{width:100%;max-width:320px;height:auto;display:block;margin:6px auto 0}
+.gtrack{fill:none;stroke:var(--line);stroke-width:14;stroke-linecap:round}
+.gfill{fill:none;stroke:var(--accent);stroke-width:14;stroke-linecap:round;transition:stroke-dasharray .6s}
+.gt{stroke:var(--muted);stroke-width:2;opacity:.6}
+.gneedle{stroke:var(--ink);stroke-width:3;stroke-linecap:round}
+.ghub{fill:var(--ink)}
+.glab{fill:var(--muted);font-size:11px;font-weight:600}
+.fundnum{text-align:center;font-size:18px;margin-top:2px}
+.fundnum b{font-size:30px;letter-spacing:-.5px}
+.fundleft{text-align:center;color:var(--muted);font-size:14px;margin-bottom:8px}
+.fundin{display:flex;gap:8px;margin-top:10px}
+.fundin input{flex:1;min-width:0}
+.fundlog h4,.calsel h4{margin:14px 0 4px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.flrow{display:flex;align-items:center;gap:8px;padding:6px 0;border-top:1px solid var(--line);font-size:14px}
+.flrow .pos{color:var(--ok);font-weight:700}.flrow .neg{color:var(--danger);font-weight:700}
+.flrow .fln{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.flrow .fld{color:var(--muted);font-size:12px}
+.ask{border-top:1px solid var(--line);padding:10px 0}
+.asks .ask:first-of-type{border-top:0}
+.asktext{font-weight:600;margin-bottom:6px;overflow-wrap:anywhere}
+.ask input[type=text]{width:100%;margin:6px 0}
+.reacts{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0}
+.reacts button{font-size:22px;line-height:1;padding:8px 10px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer}
+.reacts button.on{background:var(--soft);border-color:var(--accent);box-shadow:0 0 0 2px var(--accent) inset}
+.dadbubble{background:var(--soft);border-radius:14px 14px 14px 4px;padding:8px 12px;margin-top:6px;font-size:15px;overflow-wrap:anywhere}
+.chip.dad{background:var(--soft);color:var(--ink)}
+.dadnew{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:12px;padding:12px 14px;border-radius:14px;border:0;background:var(--accent);color:var(--accent-ink);font-weight:700;cursor:pointer}
+.dadnew i{font-style:normal;font-size:13px;opacity:.85}
+.waitnote{color:var(--muted)}
+.chip.waitchip{background:#f3e3b8;color:#5b4300}
+.mini{font-size:13px;font-weight:600;padding:5px 10px;border-radius:10px;border:0;background:var(--accent);color:var(--accent-ink);cursor:pointer;margin-left:6px}
+.mini.ghost{background:none;border:1px solid var(--line);color:var(--ink)}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.calhead .name{font-weight:700}
+.calhead .ghost{padding:4px 14px;font-size:20px}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center}
+.calgrid .dow{font-size:12px;color:var(--muted);padding:2px 0}
+.cday{position:relative;aspect-ratio:1;border:1px solid var(--line);border-radius:10px;background:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:14px}
+.cday.now{border-color:var(--accent);font-weight:700}
+.cday.sel{background:var(--soft);box-shadow:0 0 0 2px var(--accent) inset}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line)}
+.dot.ok{background:var(--ok)}.dot.wait{background:#e0a21a}.dot.miss{background:var(--danger)}
+.callegend{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--muted)}
+.callegend .dot{margin-right:5px}
+.calrow{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--line)}
+.calt{display:flex;flex-direction:column;min-width:0;overflow-wrap:anywhere}
+.calt em{font-style:normal;font-size:12px;color:var(--muted)}
+.calt em.wait{color:#b57f0b}.calt em.miss{color:var(--danger)}.calt em.ok{color:var(--ok)}
+.calbtns{display:flex;gap:6px;flex:none}
+.calbtns button{padding:7px 10px;font-size:13px}
+.tabs .emo{font-size:22px;line-height:1;display:block}
+
+/* ---- Roman's look. Only when signed in as a kid. ---- */
+html:root[data-kid]{
+  --bg:#0d1230; --card:#18205a; --ink:#f3f6ff; --muted:#9db0ff; --line:#2a3680; --soft:#212c78;
+  --accent:#2ee66b; --accent-ink:#052512; --danger:#ff5d73; --ok:#2ee66b; color-scheme:dark;
+  --serif:ui-rounded,"SF Pro Rounded","Nunito","Trebuchet MS",system-ui,sans-serif;
+}
+html:root[data-kid],html:root[data-kid] body{font-family:ui-rounded,"SF Pro Rounded","Nunito","Trebuchet MS",system-ui,sans-serif;background:radial-gradient(circle at 80% -10%,#2b2f9a 0,#0d1230 55%) fixed;background-color:#0d1230}
+html:root[data-kid] h1,html:root[data-kid] .name,html:root[data-kid] .pane-head h2{font-family:inherit;font-weight:900;letter-spacing:0}
+html:root[data-kid] .homecard,html:root[data-kid] .weekcard,html:root[data-kid] .cd,html:root[data-kid] .pane,html:root[data-kid] .ideacard,html:root[data-kid] .fundcard,html:root[data-kid] .asks{border-radius:22px;border:2px solid var(--line)}
+html:root[data-kid] .weekcard{background:linear-gradient(160deg,#1f2a7a,#18205a);border-color:var(--accent);box-shadow:0 6px 0 #0a0f2b}
+html:root[data-kid] .fundcard{background:linear-gradient(160deg,#1f2a7a,#18205a);border-color:#17c9ff;box-shadow:0 6px 0 #0a0f2b}
+html:root[data-kid] .pri{border-radius:18px;background:var(--accent);color:var(--accent-ink);font-weight:900;box-shadow:0 5px 0 #14a049;border:0}
+html:root[data-kid] .pri:active{transform:translateY(4px);box-shadow:0 1px 0 #14a049}
+html:root[data-kid] .ghost{border-radius:16px;border:2px solid var(--line);background:var(--soft)}
+html:root[data-kid] .goalbar{height:22px;border-radius:99px;background:#0a0f2b;border:2px solid var(--line)}
+html:root[data-kid] .goalbar>div{background:linear-gradient(90deg,#17c9ff,#2ee66b);box-shadow:0 0 14px #2ee66b88}
+html:root[data-kid] .goalbar>i{background:#ffd93d;opacity:1;box-shadow:0 0 8px #ffd93d}
+html:root[data-kid] .bar{height:12px;background:#0a0f2b}
+html:root[data-kid] .bar>div{background:linear-gradient(90deg,#17c9ff,#2ee66b)}
+html:root[data-kid] .item input[type=checkbox]{width:28px;height:28px;accent-color:#2ee66b}
+html:root[data-kid] .cdn{color:#ffd93d;font-weight:900}
+html:root[data-kid] .tabs{border-radius:24px 24px 0 0;background:#10173f;border-top:2px solid var(--line)}
+html:root[data-kid] .tabs button.on{color:#2ee66b}
+html:root[data-kid] .chip{border-radius:99px}
+html:root[data-kid] .gfill{stroke:url(#kg);filter:drop-shadow(0 0 6px #2ee66b99)}
+html:root[data-kid] .gneedle{stroke:#ffd93d}
+html:root[data-kid] .ghub{fill:#ffd93d}
+html:root[data-kid] .gtrack{stroke:#0a0f2b}
+html:root[data-kid] .fundnum b{color:#ffd93d}
+html:root[data-kid] .dadbubble{background:#2a3680;border-radius:18px 18px 18px 4px}
+html:root[data-kid] .dadnew{border-radius:18px;box-shadow:0 5px 0 #14a049}
+html:root[data-kid] .chip.waitchip{background:#ffd93d;color:#3a2a00}
+html:root[data-kid] input,html:root[data-kid] select{border-radius:14px}

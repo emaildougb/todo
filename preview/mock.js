@@ -27,7 +27,9 @@
   var rs = db.secs.filter(function (s) { return s.list === roman.id; })[0];
   add(rs.id, 0, 'Sample: clean my room', { by: 'roman' });
 
-  var chores = [], cid = 1, cdone = {};
+  var chores = [], cid = 1, cdone = {}, cwait = {}, fund = { goal: 2000, log: [] }, asks = [], aid = 1, kidIdeas = [];
+  fund.log.push({ id: 1, amount: 450, note: 'Birthday money', day: '2026-09-02', by: 'doug' }, { id: 2, amount: 250, note: 'Mowing', day: '2026-10-05', by: 'doug' }); fund.log.reverse();
+  asks.push({ id: aid++, by: 'roman', text: 'Can we go to the car meet Saturday?', status: 'open', reply_emoji: '', reply_note: '', reply_ts: 0, ts: 1 });
   function addChore(t, person, days) { chores.push({ id: cid++, text: t, person: person, days: days, del: false }); }
   addChore('Sample: feed the dog', 'roman', []); addChore('Sample: take out the trash', 'roman', [2, 4]); addChore('Sample: make bed', 'roman', []);
   addChore('Sample: laundry', 'doug', [1, 3, 5]);
@@ -40,7 +42,7 @@
     return chores.filter(function (c) { return !c.del && (me.role === 'parent' || c.person === me.id || c.person === 'all'); }).map(function (c) {
       var missed = '';
       for (var i = 1; i <= 7; i++) { var d = addD(today, -i); if (dueOn(c, d)) { if (!cdone[c.id + '|' + d]) missed = d; break; } }
-      return { id: c.id, text: c.text, person: c.person, days: c.days, today: dueOn(c, today), done: !!cdone[c.id + '|' + today], missed: missed };
+      return { id: c.id, text: c.text, person: c.person, days: c.days, today: dueOn(c, today), done: !!cdone[c.id + '|' + today], waiting: !!cwait[c.id + '|' + today], missed: missed };
     });
   }
   // week goal (Sunday to Saturday) for the kid, like the real server
@@ -50,10 +52,10 @@
     if (!rows.length) return null;
     var ws = addD(today, -dow(today));
     function shape(w, upTo) {
-      var g = goals[w] || { target: 80, reward: '', closed: false }, total = 0, got = 0;
-      for (var i = 0; i < 7; i++) { var d = addD(w, i); if (d > upTo) break; rows.forEach(function (c) { if (dueOn(c, d)) { total++; if (cdone[c.id + '|' + d]) got++; } }); }
+      var g = goals[w] || { target: 80, reward: '', closed: false }, total = 0, got = 0, wt = 0;
+      for (var i = 0; i < 7; i++) { var d = addD(w, i); if (d > upTo) break; rows.forEach(function (c) { if (dueOn(c, d)) { total++; if (cdone[c.id + '|' + d] && !cwait[c.id + '|' + d]) got++; else if (cwait[c.id + '|' + d]) wt++; } }); }
       var pct = total ? Math.round(got / total * 100) : 0;
-      return { week: w, target: g.target, reward: g.reward, closed: !!g.closed, total: total, done: got, pct: pct, earned: total > 0 && pct >= g.target };
+      return { waiting: wt, week: w, target: g.target, reward: g.reward, closed: !!g.closed, total: total, done: got, pct: pct, earned: total > 0 && pct >= g.target };
     }
     var o = shape(ws, today); o.kid = 'roman'; o.name = 'Roman'; o.history = [];
     for (var k = 1; k <= 4; k++) { var w = addD(ws, -7 * k), h = shape(w, addD(w, 6)); if (h.total) o.history.push(h); }
@@ -68,7 +70,7 @@
       db.secs.filter(function (s) { return s.list === l.id; }).forEach(function (s) {
         var tops = [];
         db.items.filter(function (i) { return i.sec === s.id && !i.del && !i.parent; }).forEach(function (i) {
-          tops.push({ id: i.id, text: i.text, done: i.done, store: i.store, shop: i.shop, link: i.link || '', priority: i.priority, due: i.due, created_by: i.by,
+          tops.push({ id: i.id, text: i.text, done: i.done, store: i.store, shop: i.shop, link: i.link || '', priority: i.priority, due: i.due, created_by: i.by, reply_emoji: i.re || '', reply_note: i.rn || '', reply_ts: i.rt || 0,
             kids: db.items.filter(function (k) { return k.parent === i.id && !k.del; }).map(function (k) {
               return { id: k.id, text: k.text, done: k.done, store: k.store, shop: k.shop, link: k.link || '', priority: k.priority, due: k.due, created_by: k.by, kids: [] }; }) });
         });
@@ -102,16 +104,38 @@
       if (p === '/api/login') { me = CFG.users.filter(function (u) { return u.id === b.user; })[0]; return me ? res(200, { user: me }) : res(401, { error: 'Wrong PIN.' }); }
       if (p === '/api/logout') { me = null; return res(200, {}); }
       if (!me) return res(401, { error: 'Not signed in.' });
-      if (p === '/api/state') { var st = state(); var dm = /[?&]d=([\d-]+)/.exec(String(url)); st.chores = choreState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.people = CFG.users.map(function (u) { return { id: u.id, name: u.name, role: u.role }; }); st.week = weekState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.ideas_custom = kid() ? [] : customIdeas.slice(); st.recovery_set = !kid() && !!window.__recSet; return res(200, st); }
+      if (p === '/api/state') { var st = state(); var dm = /[?&]d=([\d-]+)/.exec(String(url)); st.chores = choreState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.people = CFG.users.map(function (u) { return { id: u.id, name: u.name, role: u.role }; }); st.week = weekState(dm ? dm[1] : new Date().toISOString().slice(0, 10)); st.ideas_custom = kid() ? [] : customIdeas.slice(); st.ideas_roman = kidIdeas.slice(); st.fund = { goal: fund.goal, saved: fund.log.reduce(function (a, x) { return a + x.amount; }, 0), log: kid() ? undefined : fund.log.slice(0, 8) }; st.asks = asks.filter(function (a) { return kid() ? a.by === me.id : true; }).slice().reverse(); st.recovery_set = !kid() && !!window.__recSet; return res(200, st); }
       if (p === '/api/recovery' && m === 'POST') { if (kid()) return res(403, { error: 'Only a parent can make a recovery code.' }); window.__recSet = true; return res(200, { code: 'K7QM-2XWD-9PLH-4TBN' }); }
       if (p === '/api/pin/recover') return res(401, { error: 'Preview only. Nothing to recover here.' });
       if (p === '/api/pin/reset' && m === 'POST') { if (kid()) return res(403, { error: 'Only a parent can reset a PIN.' }); return /^\d{4,8}$/.test(String(b.pin || '')) ? res(200, { ok: true }) : res(400, { error: 'Use 4 to 8 digits for the new PIN.' }); }
       if (p === '/api/week' && m === 'PATCH') { if (kid()) return res(403, { error: 'Only Dad can set the weekly goal.' }); var gg = goals[b.week] || (goals[b.week] = { target: 80, reward: '', closed: false }); if ('target' in b) gg.target = +b.target; if ('reward' in b) gg.reward = String(b.reward).slice(0, 120); if ('closed' in b) gg.closed = !!b.closed; return res(200, { ok: true }); }
-      if (p === '/api/ideas' && m === 'POST') { if (kid()) return res(403, { error: 'Only Dad can add ideas for now.' }); customIdeas.push(String(b.text).slice(0, 120)); return res(200, { ok: true }); }
+      if (p === '/api/ideas' && m === 'POST') { (kid() ? kidIdeas : customIdeas).push(String(b.text).slice(0, 120)); return res(200, { ok: true }); }
+      var cc = /^\/api\/chorecal/.exec(p);
+      if (cc) {
+        if (kid()) return res(403, { error: 'Only a parent can see the calendar.' });
+        var mo = (/[?&]m=([\d-]+)/.exec(String(url)) || [])[1], td = (/[?&]d=([\d-]+)/.exec(String(url)) || [])[1] || localDay(0), out = { month: mo, days: {} };
+        var nd = new Date(+mo.slice(0, 4), +mo.slice(5, 7), 0).getDate();
+        for (var dd = 1; dd <= nd; dd++) {
+          var key = mo + '-' + String(dd).padStart(2, '0'), its = [];
+          if (key > td) continue;
+          chores.forEach(function (c) { if (c.del || !dueOn(c, key)) return; var k = c.id + '|' + key; its.push({ id: c.id, text: c.text, state: cwait[k] ? 'wait' : cdone[k] ? 'ok' : key < td ? 'miss' : 'todo' }); });
+          var stt = its.some(function (x) { return x.state === 'wait'; }) ? 'wait' : its.some(function (x) { return x.state === 'miss'; }) ? 'miss' : its.some(function (x) { return x.state === 'ok'; }) ? 'ok' : '';
+          out.days[key] = { state: stt, items: its };
+        }
+        return res(200, out);
+      }
+      var cf = /^\/api\/chores\/(\d+)\/confirm$/.exec(p);
+      if (cf) { if (kid()) return res(403, { error: 'Only a parent can confirm.' }); var ck = cf[1] + '|' + b.day; delete cwait[ck]; if (b.ok) cdone[ck] = 1; else delete cdone[ck]; return res(200, {}); }
+      if (p === '/api/fund' && m === 'POST') { if (kid()) return res(403, { error: 'Only Dad can change the car fund.' }); var am = +b.amount * (b.kind === 'take' ? -1 : 1); fund.log.unshift({ id: Date.now(), amount: am, note: b.note || '', day: b.day, by: 'doug' }); return res(200, {}); }
+      if (p === '/api/fund' && m === 'PATCH') { fund.goal = +b.goal; return res(200, {}); }
+      var fd = /^\/api\/fund\/(\d+)$/.exec(p); if (fd && m === 'DELETE') { fund.log = fund.log.filter(function (x) { return x.id !== +fd[1]; }); return res(200, {}); }
+      if (p === '/api/asks' && m === 'POST') { asks.push({ id: aid++, by: me.id, text: String(b.text).slice(0, 300), status: 'open', reply_emoji: '', reply_note: '', reply_ts: 0, ts: Date.now() }); return res(200, {}); }
+      var ak = /^\/api\/asks\/(\d+)(\/tolist)?$/.exec(p);
+      if (ak) { if (kid()) return res(403, { error: 'Only Dad can do that.' }); var ax = asks.filter(function (a) { return a.id === +ak[1]; })[0]; if (ak[2]) { ax.status = 'done'; var sec0 = db.secs.filter(function (x) { return db.lists.filter(function (l) { return l.key === 'roman-doug'; })[0].id === x.list; })[0]; add(sec0.id, 0, ax.text, { by: 'roman' }); } else { if ('status' in b) ax.status = b.status; if ('reply_emoji' in b) { ax.reply_emoji = b.reply_emoji; ax.reply_note = b.reply_note || ''; ax.reply_ts = Date.now(); } } return res(200, {}); }
       var cm = /^\/api\/chores(?:\/(\d+))?(?:\/(done))?$/.exec(p);
       if (cm) {
         var cx = cm[1] ? chores.filter(function (c) { return c.id === +cm[1]; })[0] : null;
-        if (cm[2]) { if (!cx) return res(404, { error: 'Not found.' }); if (b.done) cdone[cx.id + '|' + b.day] = 1; else delete cdone[cx.id + '|' + b.day]; return res(200, {}); }
+        if (cm[2]) { if (!cx) return res(404, { error: 'Not found.' }); var kk = cx.id + '|' + b.day; if (b.done) { cdone[kk] = 1; if (kid()) cwait[kk] = 1; } else { if (kid() && cdone[kk] && !cwait[kk]) return res(403, { error: 'Dad already confirmed that one.' }); delete cdone[kk]; delete cwait[kk]; } return res(200, {}); }
         if (kid()) return res(403, { error: 'Only a parent can change chores.' });
         if (m === 'POST') { addChore(b.text, b.person, b.days || []); return res(200, {}); }
         if (cx && m === 'DELETE') { cx.del = true; return res(200, {}); }
@@ -165,6 +189,7 @@
           i.sec = ns.id; db.items.forEach(function (k) { if (k.parent === i.id) k.sec = ns.id; });
           db.items = db.items.filter(function (k) { return k !== i; }); db.items.push(i);
         }
+        if ('reply_emoji' in b || 'reply_note' in b) { if (kid()) return res(403, { error: 'Only Dad can reply.' }); i.re = b.reply_emoji || ''; i.rn = String(b.reply_note || '').slice(0, 140); i.rt = (i.re || i.rn) ? Date.now() : 0; }
         if ('priority' in b) i.priority = b.priority; if ('due' in b) i.due = b.due;
         if ('deleted' in b) { i.del = !!b.deleted; recalc(i.parent); }
         if ('done' in b) { i.done = !!b.done; db.items.forEach(function (k) { if (k.parent === i.id) k.done = i.done; }); recalc(i.parent); }

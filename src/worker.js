@@ -54,6 +54,8 @@ function ensureSchema(env) {
         env.DB.prepare('CREATE TABLE IF NOT EXISTS chores (id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, person TEXT, days TEXT DEFAULT \'\', deleted INTEGER DEFAULT 0)'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS chore_done (chore_id INTEGER, day TEXT, by TEXT, PRIMARY KEY (chore_id, day))'),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS recovery (user TEXT PRIMARY KEY, salt TEXT, hash TEXT)'),
+        env.DB.prepare('CREATE TABLE IF NOT EXISTS fund_log (id INTEGER PRIMARY KEY AUTOINCREMENT, cents INTEGER, note TEXT, day TEXT, by TEXT, ts INTEGER)'),
+        env.DB.prepare("CREATE TABLE IF NOT EXISTS asks (id INTEGER PRIMARY KEY AUTOINCREMENT, by TEXT, text TEXT, status TEXT DEFAULT 'open', reply_emoji TEXT DEFAULT '', reply_note TEXT DEFAULT '', reply_ts INTEGER DEFAULT 0, ts INTEGER)"),
         env.DB.prepare('CREATE TABLE IF NOT EXISTS week_goals (week TEXT PRIMARY KEY, target INTEGER, reward TEXT, closed INTEGER DEFAULT 0)'),
       ]);
       // New columns go in this list, never into the CREATE TABLE above, so updates never break existing data.
@@ -67,7 +69,11 @@ function ensureSchema(env) {
         ['updated_at', 'INTEGER DEFAULT 0'],
         ['shop', "TEXT DEFAULT ''"],
         ['link', "TEXT DEFAULT ''"],
+        ['reply_emoji', "TEXT DEFAULT ''"],
+        ['reply_note', "TEXT DEFAULT ''"],
+        ['reply_ts', 'INTEGER DEFAULT 0'],
       ]);
+      await addColumns(env, 'chore_done', [['confirmed', 'INTEGER DEFAULT 1']]);
       await addColumns(env, 'chores', [['created', "TEXT DEFAULT ''"]]);
       await seed(env);
       // 1.1.0: Roman's own list is now called "Roman's To do" (only if it still has the old name).
@@ -269,7 +275,7 @@ async function buildState(env, user) {
   const secs = (await env.DB.prepare(`SELECT id, list_id, name FROM sections WHERE list_id IN (${ph}) ORDER BY pos, id`).bind(...ids).all()).results;
   const rows = (
     await env.DB.prepare(
-      `SELECT i.id, i.section_id, i.parent_id, i.text, i.done, i.store, i.shop, i.link, i.priority, i.due, i.created_by
+      `SELECT i.id, i.section_id, i.parent_id, i.text, i.done, i.store, i.shop, i.link, i.priority, i.due, i.created_by, i.reply_emoji, i.reply_note, i.reply_ts
        FROM items i JOIN sections s ON s.id = i.section_id
        WHERE s.list_id IN (${ph}) AND COALESCE(i.deleted, 0) = 0 ORDER BY i.pos, i.id`
     ).bind(...ids).all()
@@ -277,7 +283,7 @@ async function buildState(env, user) {
   const byId = {};
   const tops = {};
   for (const r of rows) {
-    const it = { id: r.id, text: r.text, done: !!r.done, store: r.store || '', shop: r.shop || '', link: r.link || '', priority: r.priority || 'normal', due: r.due || '', created_by: r.created_by, kids: [] };
+    const it = { id: r.id, text: r.text, done: !!r.done, store: r.store || '', shop: r.shop || '', link: r.link || '', priority: r.priority || 'normal', due: r.due || '', created_by: r.created_by, reply_emoji: r.reply_emoji || '', reply_note: r.reply_note || '', reply_ts: r.reply_ts || 0, kids: [] };
     byId[r.id] = it;
     if (!r.parent_id) (tops[r.section_id] = tops[r.section_id] || []).push(it);
   }
@@ -322,6 +328,7 @@ function cleanLink(v) {
     return '';
   }
 }
+const REPLY_EMOJI = ['', '\u{1F44D}', '\u{1F914}', '\u{1F4B0}', '\u23F3', '\u274C'];
 const clean = (s, max = 300) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, max);
 
 // ---------- writing ----------
@@ -415,6 +422,14 @@ async function patchItem(env, user, id, b) {
   if ('store' in b) {
     sets.push('store = ?');
     vals.push(b.store && stores.includes(b.store) ? b.store : '');
+  }
+  if ('reply_emoji' in b || 'reply_note' in b) {
+    if (!isParent(user)) return fail('Only Dad can reply.', 403);
+    const em = 'reply_emoji' in b ? String(b.reply_emoji || '') : it.reply_emoji || '';
+    const nt = 'reply_note' in b ? clean(b.reply_note, 140) : it.reply_note || '';
+    const emoji = REPLY_EMOJI.includes(em) ? em : '';
+    sets.push('reply_emoji = ?', 'reply_note = ?', 'reply_ts = ?');
+    vals.push(emoji, nt, emoji || nt ? Date.now() : 0);
   }
   if ('link' in b) {
     sets.push('link = ?');
@@ -602,8 +617,9 @@ const choreVisible = (c, user) => user.role === 'parent' || c.person === user.id
 async function choreState(env, user, today) {
   const rows = (await env.DB.prepare('SELECT id, text, person, days FROM chores WHERE COALESCE(deleted, 0) = 0 ORDER BY id').all()).results;
   const from = addDays(today, -7);
-  const done = (await env.DB.prepare('SELECT chore_id, day FROM chore_done WHERE day >= ?').bind(from).all()).results;
+  const done = (await env.DB.prepare('SELECT chore_id, day, confirmed FROM chore_done WHERE day >= ?').bind(from).all()).results;
   const doneSet = new Set(done.map((r) => r.chore_id + '|' + r.day));
+  const waitSet = new Set(done.filter((r) => r.confirmed === 0).map((r) => r.chore_id + '|' + r.day));
   const out = [];
   for (const r of rows) {
     const c = { id: r.id, text: r.text, person: r.person, days: r.days ? r.days.split(',').map(Number) : [] };
@@ -616,7 +632,7 @@ async function choreState(env, user, today) {
         break; // only the most recent scheduled day counts
       }
     }
-    out.push({ ...c, today: dueOn(c, today), done: doneSet.has(c.id + '|' + today), missed });
+    out.push({ ...c, today: dueOn(c, today), done: doneSet.has(c.id + '|' + today), waiting: waitSet.has(c.id + '|' + today), missed });
   }
   return out;
 }
@@ -629,7 +645,21 @@ async function chores(env, user, method, id, request, url) {
     if (!row || !choreVisible({ person: row.person }, user)) return fail('Not found.', 404);
     const day = String(body.day || '');
     if (!DAY_RE.test(day)) return fail('Bad date.');
-    if (body.done) await env.DB.prepare('INSERT OR REPLACE INTO chore_done (chore_id, day, by) VALUES (?, ?, ?)').bind(id, day, user.id).run();
+    // Roman checking a chore means "I did it". It waits until Dad confirms. Dad checking one is final.
+    const ex = await env.DB.prepare('SELECT confirmed FROM chore_done WHERE chore_id = ? AND day = ?').bind(id, day).first();
+    if (body.done) {
+      if (!ex || isParent(user)) await env.DB.prepare('INSERT OR REPLACE INTO chore_done (chore_id, day, by, confirmed) VALUES (?, ?, ?, ?)').bind(id, day, user.id, isParent(user) ? 1 : 0).run();
+    } else {
+      if (!isParent(user) && ex && ex.confirmed) return fail('Dad already confirmed that one.', 403);
+      await env.DB.prepare('DELETE FROM chore_done WHERE chore_id = ? AND day = ?').bind(id, day).run();
+    }
+    return json({ ok: true });
+  }
+  if (sub === 'confirm' && method === 'POST') {
+    if (!isParent(user)) return fail('Only Dad can confirm.', 403);
+    const day = String(body.day || '');
+    if (!DAY_RE.test(day) || !id) return fail('Bad date.');
+    if (body.ok) await env.DB.prepare('INSERT OR REPLACE INTO chore_done (chore_id, day, by, confirmed) VALUES (?, ?, ?, 1)').bind(id, day, user.id).run();
     else await env.DB.prepare('DELETE FROM chore_done WHERE chore_id = ? AND day = ?').bind(id, day).run();
     return json({ ok: true });
   }
@@ -670,8 +700,9 @@ async function weekState(env, today) {
   if (!rows.length) return null;
   const thisWeek = weekStartOf(today);
   const first = addDays(thisWeek, -28);
-  const done = (await env.DB.prepare('SELECT chore_id, day FROM chore_done WHERE day >= ?').bind(first).all()).results;
-  const doneSet = new Set(done.map((r) => r.chore_id + '|' + r.day));
+  const done = (await env.DB.prepare('SELECT chore_id, day, confirmed FROM chore_done WHERE day >= ?').bind(first).all()).results;
+  const doneSet = new Set(done.filter((r) => r.confirmed !== 0).map((r) => r.chore_id + '|' + r.day));
+  const waitSet = new Set(done.filter((r) => r.confirmed === 0).map((r) => r.chore_id + '|' + r.day));
   const goals = (await env.DB.prepare('SELECT week, target, reward, closed FROM week_goals WHERE week >= ?').bind(first).all()).results;
   const goalOf = (w) => goals.find((g) => g.week === w) || { week: w, target: 80, reward: '', closed: 0 };
   const count = (w, upTo) => {
@@ -694,6 +725,9 @@ async function weekState(env, today) {
     return { week: w, target: g.target, reward: g.reward || '', closed: !!g.closed, total: c.total, done: c.got, pct: c.pct, earned: c.total > 0 && c.pct >= g.target };
   };
   const out = { kid: kid.id, name: kid.name, ...shape(thisWeek, today), history: [] };
+  let waiting = 0;
+  for (let i = 0; i < 7; i++) { const d = addDays(thisWeek, i); if (d > today) break; for (const c of rows) if (waitSet.has(c.id + '|' + d)) waiting++; }
+  out.waiting = waiting;
   for (let i = 1; i <= 4; i++) {
     const w = addDays(thisWeek, -7 * i);
     const h = shape(w, addDays(w, 6));
@@ -730,15 +764,129 @@ async function customIdeas(env) {
 }
 
 async function addIdea(env, user, request) {
-  if (!isParent(user)) return fail('Only Dad can add ideas for now.', 403);
   const b = await request.json().catch(() => ({}));
   const text = clean(b.text, 120);
   if (!text) return fail('Type an idea first.');
-  const list = await customIdeas(env);
-  if (list.length >= 100) return fail('That is a lot of ideas. Time to use some.');
+  const key = isParent(user) ? 'ideas_custom' : 'ideas_roman';
+  const r = await env.DB.prepare('SELECT v FROM settings WHERE k = ?').bind(key).first();
+  let list = [];
+  try { list = JSON.parse(r ? r.v : '[]'); } catch (e) { list = []; }
+  if (!Array.isArray(list)) list = [];
+  if (list.length >= (isParent(user) ? 100 : 50)) return fail('That is a lot of ideas. Time to use some.');
   if (!list.includes(text)) list.push(text);
-  await env.DB.prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)').bind('ideas_custom', JSON.stringify(list)).run();
-  return json({ ok: true, ideas_custom: list });
+  await env.DB.prepare('INSERT OR REPLACE INTO settings (k, v) VALUES (?, ?)').bind(key, JSON.stringify(list)).run();
+  return json({ ok: true });
+}
+
+// ---------- chore calendar (Dad) ----------
+async function choreCal(env, user, url) {
+  if (!isParent(user)) return fail('Only Dad can see the calendar.', 403);
+  const kid = USERS.find((u) => u.role === 'kid');
+  const m = url.searchParams.get('m') || '';
+  const d = url.searchParams.get('d') || '';
+  if (!/^\d{4}-\d{2}$/.test(m) || !DAY_RE.test(d) || !kid) return fail('Bad month.');
+  const y = +m.slice(0, 4), mo = +m.slice(5, 7);
+  if (y < 2020 || y > 2100 || mo < 1 || mo > 12) return fail('Bad month.');
+  const rows = (await env.DB.prepare('SELECT id, text, person, days, created FROM chores WHERE COALESCE(deleted, 0) = 0 ORDER BY id').all()).results
+    .filter((c) => c.person === kid.id || c.person === 'all')
+    .map((c) => ({ id: c.id, text: c.text, days: c.days ? c.days.split(',').map(Number) : [], created: c.created || '' }));
+  const first = m + '-01';
+  const count = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+  const last = m + '-' + String(count).padStart(2, '0');
+  const done = (await env.DB.prepare('SELECT chore_id, day, confirmed FROM chore_done WHERE day >= ? AND day <= ?').bind(first, last).all()).results;
+  const rec = new Map(done.map((r) => [r.chore_id + '|' + r.day, r.confirmed]));
+  const days = {};
+  for (let i = 1; i <= count; i++) {
+    const day = m + '-' + String(i).padStart(2, '0');
+    const items = [];
+    for (const c of rows) {
+      if (c.created && day < c.created) continue;
+      if (!dueOn(c, day)) continue;
+      const r = rec.get(c.id + '|' + day);
+      items.push({ id: c.id, text: c.text, state: r === undefined ? (day < d ? 'miss' : 'todo') : r === 0 ? 'wait' : 'ok' });
+    }
+    if (!items.length) continue;
+    const has = (st) => items.some((x) => x.state === st);
+    days[day] = { state: has('miss') ? 'miss' : has('wait') ? 'wait' : items.every((x) => x.state === 'ok') ? 'ok' : '', items };
+  }
+  return json({ month: m, days });
+}
+
+// ---------- car fund ----------
+async function fundState(env, user) {
+  const g = await env.DB.prepare("SELECT v FROM settings WHERE k = 'fund_goal'").first();
+  const goal = g && +g.v > 0 ? +g.v : 2000;
+  const sum = await env.DB.prepare('SELECT COALESCE(SUM(cents), 0) AS c FROM fund_log').first();
+  const out = { goal, saved: Math.round(sum.c) / 100 };
+  if (isParent(user)) {
+    out.log = (await env.DB.prepare('SELECT id, cents, note, day, by FROM fund_log ORDER BY id DESC LIMIT 8').all()).results.map((r) => ({ id: r.id, amount: r.cents / 100, note: r.note, day: r.day, by: r.by }));
+  }
+  return out;
+}
+
+async function fund(env, user, method, id, request) {
+  if (!isParent(user)) return fail('Only Dad can change the car fund.', 403);
+  const b = method === 'DELETE' ? {} : await request.json().catch(() => ({}));
+  if (method === 'POST') {
+    const amt = Number(b.amount);
+    if (!(amt > 0) || amt > 100000) return fail('Type an amount above zero.');
+    const cents = Math.round(amt * 100) * (b.kind === 'take' ? -1 : 1);
+    const cur = await fundState(env, user);
+    if (Math.round(cur.saved * 100) + cents < 0) return fail('That is more than is in the fund.');
+    const day = DAY_RE.test(b.day || '') ? b.day : new Date().toISOString().slice(0, 10);
+    await env.DB.prepare('INSERT INTO fund_log (cents, note, day, by, ts) VALUES (?,?,?,?,?)').bind(cents, clean(b.note, 80), day, user.id, Date.now()).run();
+    return json({ ok: true });
+  }
+  if (method === 'PATCH') {
+    const goal = Math.round(Number(b.goal));
+    if (!(goal >= 1 && goal <= 1000000)) return fail('Pick a goal above zero.');
+    await env.DB.prepare("INSERT OR REPLACE INTO settings (k, v) VALUES ('fund_goal', ?)").bind(String(goal)).run();
+    return json({ ok: true });
+  }
+  if (method === 'DELETE' && id) {
+    await env.DB.prepare('DELETE FROM fund_log WHERE id = ?').bind(id).run();
+    return json({ ok: true });
+  }
+  return fail('Not found', 404);
+}
+
+// ---------- Ask Dad ----------
+async function asksState(env, user) {
+  const rows = isParent(user)
+    ? (await env.DB.prepare("SELECT * FROM asks WHERE status = 'open' OR ts > ? ORDER BY id DESC LIMIT 30").bind(Date.now() - 14 * 864e5).all()).results
+    : (await env.DB.prepare('SELECT * FROM asks WHERE by = ? ORDER BY id DESC LIMIT 8').bind(user.id).all()).results;
+  return rows.map((r) => ({ id: r.id, by: r.by, text: r.text, status: r.status, reply_emoji: r.reply_emoji || '', reply_note: r.reply_note || '', reply_ts: r.reply_ts || 0, ts: r.ts }));
+}
+
+async function asks(env, user, method, id, request, url) {
+  const b = method === 'GET' ? {} : await request.json().catch(() => ({}));
+  if (method === 'POST' && !id) {
+    const text = clean(b.text, 300);
+    if (!text) return fail('Type something first.');
+    await env.DB.prepare('INSERT INTO asks (by, text, ts) VALUES (?,?,?)').bind(user.id, text, Date.now()).run();
+    return json({ ok: true });
+  }
+  if (!isParent(user)) return fail('Only Dad can answer.', 403);
+  const row = id ? await env.DB.prepare('SELECT * FROM asks WHERE id = ?').bind(id).first() : null;
+  if (!row) return fail('Not found', 404);
+  const sub = url.pathname.split('/').filter(Boolean)[3];
+  if (method === 'POST' && sub === 'tolist') {
+    const list = await env.DB.prepare("SELECT id FROM lists WHERE key = 'roman-doug'").first();
+    const sec = list ? await env.DB.prepare('SELECT id FROM sections WHERE list_id = ? ORDER BY pos, id LIMIT 1').bind(list.id).first() : null;
+    if (!sec) return fail('No place to put it.');
+    await insertItem(env, sec.id, null, clean(row.text, 300), await nextPos(env, sec.id, null), row.by);
+    await env.DB.prepare("UPDATE asks SET status = 'done' WHERE id = ?").bind(id).run();
+    return json({ ok: true });
+  }
+  if (method === 'PATCH') {
+    const em = 'reply_emoji' in b ? (REPLY_EMOJI.includes(b.reply_emoji) ? b.reply_emoji : '') : row.reply_emoji || '';
+    const nt = 'reply_note' in b ? clean(b.reply_note, 140) : row.reply_note || '';
+    const status = 'status' in b ? (b.status === 'done' ? 'done' : 'open') : row.status;
+    const ts = 'reply_emoji' in b || 'reply_note' in b ? (em || nt ? Date.now() : 0) : row.reply_ts || 0;
+    await env.DB.prepare('UPDATE asks SET status = ?, reply_emoji = ?, reply_note = ?, reply_ts = ? WHERE id = ?').bind(status, em, nt, ts, id).run();
+    return json({ ok: true });
+  }
+  return fail('Not found', 404);
 }
 
 // ---------- routing ----------
@@ -778,6 +926,10 @@ async function route(request, env, url) {
     state.people = USERS.map((u) => ({ id: u.id, name: u.name, role: u.role }));
     state.week = await weekState(env, DAY_RE.test(d || '') ? d : new Date().toISOString().slice(0, 10));
     state.ideas_custom = isParent(user) ? await customIdeas(env) : [];
+    const ir = await env.DB.prepare("SELECT v FROM settings WHERE k = 'ideas_roman'").first();
+    try { state.ideas_roman = JSON.parse(ir ? ir.v : '[]'); } catch (e) { state.ideas_roman = []; }
+    state.fund = await fundState(env, user);
+    state.asks = await asksState(env, user);
     state.recovery_set = isParent(user) ? !!(await env.DB.prepare('SELECT 1 AS x FROM recovery WHERE user = ?').bind(user.id).first()) : false;
     return json(state);
   }
@@ -792,6 +944,9 @@ async function route(request, env, url) {
   if (name === 'import' && method === 'POST') return importOld(env, user, request);
   if (name === 'week' && method === 'PATCH') return saveWeek(env, user, request);
   if (name === 'ideas' && method === 'POST') return addIdea(env, user, request);
+  if (name === 'chorecal' && method === 'GET') return choreCal(env, user, url);
+  if (name === 'fund' && ['POST', 'PATCH', 'DELETE'].includes(method)) return fund(env, user, method, id, request);
+  if (name === 'asks' && ['POST', 'PATCH'].includes(method)) return asks(env, user, method, id, request, url);
   if (name === 'stores' && method === 'PATCH') return saveStores(env, user, request);
   return fail('Not found', 404);
 }
