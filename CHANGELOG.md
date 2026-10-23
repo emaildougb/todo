@@ -1,5 +1,10 @@
 # Changes
 
+## 1.5.0 (Oct 22, 2026)
+
+- Garage look for Dad's side: graphite black (light version too), safety orange, flat cards with no borders or shadows, big numbers, square corners.
+- Roman keeps his look. Tidied: countdown numbers no longer wrap, thin lines removed, even spacing between cards.
+
 ## 1.4.0 (Oct 20, 2026)
 
 - Car fund: a gauge from $0 to $2,000 (Doug can change the goal). Doug adds money or takes it out with a note, and sees recent entries. Roman sees the gauge and how much is left, read only.

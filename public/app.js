@@ -2,8 +2,9 @@
 (function () {
   'use strict';
 
-  var APP_VER = '1.4.0';
+  var APP_VER = '1.5.0';
   var NEWS = [
+    { v: '1.5.0', d: 'Oct 22, 2026', notes: ['New Garage look on Dad\u2019s side: graphite and safety orange, big numbers, square corners. Roman keeps his look, tidied up.'] },
     { v: '1.4.0', d: 'Oct 20, 2026', notes: ['Car fund gauge, Ask Dad, a chore calendar where Roman says he did it and Dad confirms, Dad replies on any item, Roman can suggest weekly ideas, and a bolder look for Roman.'] },
     { v: '1.3.2', d: 'Oct 20, 2026', notes: ['Recovery code: Dad makes one in Settings and saves it. If he forgets his PIN, Forgot my PIN on the sign in page uses the code to set a new one.'] },
     { v: '1.3.1', d: 'Oct 20, 2026', notes: ['Settings has an I forgot my current PIN option, so you can set a new PIN while signed in.'] },

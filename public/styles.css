@@ -332,3 +332,38 @@ html:root[data-kid] .dadbubble{background:#2a3680;border-radius:18px 18px 18px 4
 html:root[data-kid] .dadnew{border-radius:18px;box-shadow:0 5px 0 #14a049}
 html:root[data-kid] .chip.waitchip{background:#ffd93d;color:#3a2a00}
 html:root[data-kid] input,html:root[data-kid] select{border-radius:14px}
+
+/* ---- 1.5.0: Garage look for Dad's side. Roman keeps his own look. ---- */
+html:root:not([data-kid]){--serif:-apple-system,"Segoe UI",Roboto,sans-serif;--r:8px;--bg:#eeeeea;--card:#e2e2dc;--soft:#d3d3cc;--ink:#15161a;--muted:#5c5e63;--line:#c9c9c1;--track:#c9c9c1;--accent:#d8530a;--accent-ink:#ffffff;--done:#8c8e92;--danger:#c0432f;--ok:#2f7d4f;color-scheme:light;}
+@media (prefers-color-scheme: dark){html:root:not([data-kid]):not([data-theme="light"]){--bg:#101112;--card:#1b1d1f;--soft:#2a2d30;--ink:#f3f2ee;--muted:#9a9c9f;--line:#2f3235;--track:#2f3235;--accent:#ff6a13;--accent-ink:#140a02;--done:#6b6e72;--danger:#ff7d6b;--ok:#6fc08f;color-scheme:dark;}}
+html:root:not([data-kid])[data-theme="dark"]{--bg:#101112;--card:#1b1d1f;--soft:#2a2d30;--ink:#f3f2ee;--muted:#9a9c9f;--line:#2f3235;--track:#2f3235;--accent:#ff6a13;--accent-ink:#140a02;--done:#6b6e72;--danger:#ff7d6b;--ok:#6fc08f;color-scheme:dark;}
+html:root:not([data-kid]) *{box-shadow:none}
+html:root:not([data-kid]) .homecard,html:root:not([data-kid]) .weekcard,html:root:not([data-kid]) .fundcard,html:root:not([data-kid]) .asks,html:root:not([data-kid]) .cal,html:root:not([data-kid]) .cd,html:root:not([data-kid]) .ideacard,html:root:not([data-kid]) .pane,html:root:not([data-kid]) .tile{background:var(--card);border:0;border-radius:var(--r)}
+html:root:not([data-kid]) .tabs{background:var(--card);border:0}
+html:root:not([data-kid]) .top h1{font-size:38px;font-weight:700;letter-spacing:-.035em;line-height:1.05}
+html:root:not([data-kid]) .wk-head .name,html:root:not([data-kid]) .homehead .name,html:root:not([data-kid]) .pane-head h2{font-size:14px;color:var(--muted);font-weight:600}
+html:root:not([data-kid]) .bar,html:root:not([data-kid]) .goalbar{background:var(--track);border:0;height:12px;border-radius:99px}
+html:root:not([data-kid]) .goalbar>i{background:var(--ink);opacity:1}
+html:root:not([data-kid]) .pri{background:var(--accent);color:var(--accent-ink);border:0;border-radius:6px;font-weight:700}
+html:root:not([data-kid]) .ghost,html:root:not([data-kid]) .refresh,html:root:not([data-kid]) .themebtn{background:var(--soft);color:var(--ink);border:0;border-radius:6px}
+html:root:not([data-kid]) .refresh.new{background:var(--accent);color:var(--accent-ink)}
+html:root:not([data-kid]) .chip{background:var(--soft);border:0}
+html:root:not([data-kid]) .gtrack{stroke:var(--track)}
+html:root:not([data-kid]) .fundnum b,html:root:not([data-kid]) .cdn{font-size:44px;letter-spacing:-.04em;font-variant-numeric:tabular-nums}
+html:root:not([data-kid]) .cdn{font-size:26px;white-space:nowrap}
+html:root:not([data-kid]) input,html:root:not([data-kid]) select{border:0;background:var(--soft);color:var(--ink);border-radius:8px}
+html:root:not([data-kid]) .goaledit,html:root:not([data-kid]) .wkhist,html:root:not([data-kid]) .fundlog,html:root:not([data-kid]) .calsel,html:root:not([data-kid]) .cday,html:root:not([data-kid]) .calrow,html:root:not([data-kid]) .flrow{border-color:transparent}
+html:root:not([data-kid]) .goaledit summary{background:var(--soft);border-radius:8px;padding:10px 12px}
+html:root:not([data-kid]) .cday{background:var(--soft)}
+html:root:not([data-kid]) .cday.sel{background:var(--accent);color:var(--accent-ink)}
+html:root:not([data-kid]) .reacts button,html:root:not([data-kid]) .dadbubble{background:var(--soft);border:0}
+html:root:not([data-kid]) .reacts button.on{background:var(--accent)}
+html:root:not([data-kid]) .dadnew{background:var(--accent);color:var(--accent-ink);border-radius:8px}
+html:root:not([data-kid]) .chip.waitchip{background:var(--accent);color:var(--accent-ink)}
+
+/* ---- Roman: same look, tidier ---- */
+html:root[data-kid] .cdn{font-size:26px;white-space:nowrap}
+html:root[data-kid] .goaledit,html:root[data-kid] .wkhist,html:root[data-kid] .fundlog,html:root[data-kid] .calsel{border-color:transparent}
+html:root[data-kid] .goaledit summary{background:var(--soft);border-radius:14px;padding:10px 12px}
+html:root[data-kid] .homecard,html:root[data-kid] .weekcard,html:root[data-kid] .fundcard,html:root[data-kid] .asks{margin-top:14px}
+html:root[data-kid] .wkrow{padding:6px 0}
